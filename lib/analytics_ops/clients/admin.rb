@@ -2,10 +2,14 @@
 
 # Official Admin API boundary.
 
+require_relative "admin_normalization"
+
 module AnalyticsOps
   module Clients
     # Narrow adapter around Google's generated Admin client.
     class Admin
+      include AdminNormalization
+
       PACKAGE_REQUIREMENT = Gem::Requirement.new("~> 0.8.0")
       RETENTION_TO_GOOGLE = {
         "2_months" => :TWO_MONTHS,
@@ -30,12 +34,10 @@ module AnalyticsOps
       }.freeze
 
       def initialize(client: nil, credentials: nil, transport: :grpc, timeout: nil, logger: nil)
-        raise ConfigurationError, "transport must be grpc or rest" unless %i[grpc rest].include?(transport.to_sym)
-
         @client = client
         @credentials = credentials
-        @transport = transport.to_sym
-        @timeout = timeout
+        @transport = validate_transport(transport)
+        @timeout = validate_timeout(timeout)
         @logger = logger
       end
 
@@ -43,6 +45,7 @@ module AnalyticsOps
         raise ConfigurationError, "include_streams must be true or false" unless [true, false].include?(include_streams)
 
         list(:list_account_summaries, page_size: 200).map do |summary|
+          account_name = remote_string(field(summary, :account), "account name")
           properties = array_field(summary, :property_summaries).map do |property|
             normalized = normalize_property(property, can_edit: field(property, :can_edit))
             next normalized.to_h unless include_streams
@@ -52,21 +55,25 @@ module AnalyticsOps
           properties.sort_by! { |property| property.fetch("id") }
 
           Resources::Account.new(
-            id: resource_id(field(summary, :account)),
-            name: field(summary, :account).to_s,
-            display_name: field(summary, :display_name).to_s,
+            id: resource_id(account_name),
+            name: account_name,
+            display_name: remote_string(field(summary, :display_name), "account display name"),
             properties:
           )
-        end.sort_by(&:id)
+        end.sort_by(&:id).freeze
       end
 
       def property_access(property_id)
-        id = property_id.to_s
+        expected_name = property_name(property_id)
+        id = property_id
         list(:list_account_summaries, page_size: 200).each do |summary|
           array_field(summary, :property_summaries).each do |property|
             next unless resource_id(field(property, :property)) == id
 
-            return normalize_property(property, can_edit: field(property, :can_edit))
+            normalized = normalize_property(property, can_edit: field(property, :can_edit))
+            return normalized if normalized.name == expected_name
+
+            raise RemoteError, "Google Admin API returned a property name that does not match the request"
           end
         end
 
@@ -75,40 +82,63 @@ module AnalyticsOps
 
       def snapshot(property_id)
         property_name = property_name(property_id)
+        property = normalize_property(get(:get_property, name: property_name), can_edit: nil)
+        unless property.name == property_name
+          raise RemoteError, "Google Admin API returned a property name that does not match the request"
+        end
+
+        streams = list_streams(property_id)
+        retention = normalize_retention(get(:get_data_retention_settings,
+                                            name: "#{property_name}/dataRetentionSettings"))
+        key_events = list(:list_key_events, parent: property_name, page_size: 200).map do |value|
+          normalize_key_event(value)
+        end
+        custom_dimensions = list(:list_custom_dimensions, parent: property_name, page_size: 200)
+                            .map { |value| normalize_custom_dimension(value) }
+        custom_metrics = list(:list_custom_metrics, parent: property_name, page_size: 200)
+                         .map { |value| normalize_custom_metric(value) }
+        validate_snapshot_names!(
+          property: property_name,
+          streams:,
+          retention:,
+          key_events:,
+          dimensions: custom_dimensions,
+          metrics: custom_metrics
+        )
+
         Snapshot.new(
-          property: normalize_property(get(:get_property, name: property_name), can_edit: nil),
-          streams: list_streams(property_id),
-          retention: normalize_retention(get(:get_data_retention_settings,
-                                             name: "#{property_name}/dataRetentionSettings")),
-          key_events: list(:list_key_events, parent: property_name, page_size: 200).map do |value|
-            normalize_key_event(value)
-          end,
-          custom_dimensions: list(:list_custom_dimensions, parent: property_name, page_size: 200)
-                             .map { |value| normalize_custom_dimension(value) },
-          custom_metrics: list(:list_custom_metrics, parent: property_name, page_size: 200)
-                          .map { |value| normalize_custom_metric(value) }
+          property:,
+          streams:,
+          retention:,
+          key_events:,
+          custom_dimensions:,
+          custom_metrics:
         )
       end
 
       def capabilities
-        CAPABILITIES.to_h { |name, method| [name, client.respond_to?(method)] }.freeze
+        generated_client = translate_errors { client }
+        CAPABILITIES.to_h { |name, method| [name, generated_client.respond_to?(method)] }.freeze
       end
 
       def compatibility
         specification = Gem::Specification.find_by_name("google-analytics-admin")
-        {
+        Canonical.immutable(
           "package" => specification.name,
           "version" => specification.version.to_s,
           "requirement" => PACKAGE_REQUIREMENT.to_s,
           "supported" => PACKAGE_REQUIREMENT.satisfied_by?(specification.version),
           "transport" => @transport.to_s
-        }.freeze
+        )
       rescue Gem::LoadError => error
         raise UnsupportedCapabilityError, Redaction.message(error.message)
       end
 
       def apply_change(change, property_id:)
-        method_name, request = mutation(change, property_id.to_s)
+        raise InvalidPlanError, "change must be an AnalyticsOps::Plan::Change" unless change.is_a?(Plan::Change)
+
+        property_name(property_id)
+        method_name, request = mutation(change, property_id)
         get(method_name, request)
         change
       end
@@ -133,7 +163,7 @@ module AnalyticsOps
 
       def list(method_name, request)
         response = invoke(method_name, request)
-        response.respond_to?(:to_a) ? response.to_a : Array(response)
+        translate_errors { response.respond_to?(:to_a) ? response.to_a : Array(response) }
       end
 
       def get(method_name, request)
@@ -161,93 +191,8 @@ module AnalyticsOps
           request.dig(:data_retention_settings, :name)
       end
 
-      def translate_errors
-        yield
-      rescue AnalyticsOps::Error
-        raise
-      rescue StandardError => error
-        translated = case error.class.name
-                     when /Unauthenticated|Google::Auth|Signet::Authorization/
-                       AuthenticationError
-                     when /PermissionDenied|Forbidden/
-                       AuthorizationError
-                     when /ResourceExhausted|TooManyRequests/
-                       QuotaError
-                     when /DeadlineExceeded|Timeout|ETIMEDOUT/
-                       TimeoutError
-                     when /InvalidArgument|FailedPrecondition|NotFound|AlreadyExists/
-                       InvalidRequestError
-                     when /Google::Cloud::|GRPC::|Faraday::|HTTP/
-                       RemoteError
-                     end
-        raise unless translated
-
-        raise translated, Redaction.message(error.message)
-      end
-
-      def normalize_property(value, can_edit:)
-        name = field(value, :property) || field(value, :name)
-        Resources::Property.new(
-          id: resource_id(name),
-          name: name.to_s,
-          display_name: field(value, :display_name).to_s,
-          parent: optional_string(field(value, :parent)),
-          property_type: normalize_enum(field(value, :property_type), prefix: "PROPERTY_TYPE_"),
-          can_edit:
-        )
-      end
-
-      def normalize_stream(value)
-        name = field(value, :name).to_s
-        type = STREAM_TYPES.fetch(enum_name(field(value, :type)), "unspecified")
-        web_data = field(value, :web_stream_data)
-        Resources::DataStream.new(
-          id: resource_id(name),
-          name:,
-          display_name: field(value, :display_name).to_s,
-          type:,
-          default_uri: optional_string(field(web_data, :default_uri)),
-          measurement_id: optional_string(field(web_data, :measurement_id))
-        )
-      end
-
-      def normalize_retention(value)
-        Resources::Retention.new(
-          name: field(value, :name).to_s,
-          event_data: normalize_retention_value(field(value, :event_data_retention)),
-          user_data: normalize_retention_value(field(value, :user_data_retention)),
-          reset_on_new_activity: boolean?(field(value, :reset_user_data_on_new_activity))
-        )
-      end
-
-      def normalize_key_event(value)
-        Resources::KeyEvent.new(
-          name: field(value, :name).to_s,
-          event_name: field(value, :event_name).to_s,
-          counting_method: normalize_enum(field(value, :counting_method))
-        )
-      end
-
-      def normalize_custom_dimension(value)
-        Resources::CustomDimension.new(
-          name: field(value, :name).to_s,
-          parameter_name: field(value, :parameter_name).to_s,
-          display_name: field(value, :display_name).to_s,
-          description: field(value, :description).to_s,
-          scope: normalize_enum(field(value, :scope), prefix: "DIMENSION_SCOPE_"),
-          disallow_ads_personalization: boolean?(field(value, :disallow_ads_personalization))
-        )
-      end
-
-      def normalize_custom_metric(value)
-        Resources::CustomMetric.new(
-          name: field(value, :name).to_s,
-          parameter_name: field(value, :parameter_name).to_s,
-          display_name: field(value, :display_name).to_s,
-          description: field(value, :description).to_s,
-          scope: normalize_enum(field(value, :scope), prefix: "METRIC_SCOPE_"),
-          measurement_unit: normalize_enum(field(value, :measurement_unit), prefix: "MEASUREMENT_UNIT_")
-        )
+      def translate_errors(&)
+        ErrorTranslation.call(&)
       end
 
       def mutation(change, property_id)
@@ -368,20 +313,24 @@ module AnalyticsOps
           display_name: after.fetch("display_name"),
           description: after.fetch("description"),
           scope: :EVENT,
-          measurement_unit: after.fetch("measurement_unit").upcase.to_sym
+          measurement_unit: after.fetch("measurement_unit").upcase.to_sym,
+          restricted_metric_type: after.fetch("restricted_metric_types").map { |type| type.upcase.to_sym }
         }
       end
 
       def validate_resource_name!(name, property_id, collection)
-        prefix = "#{property_name(property_id)}/#{collection}/"
-        raise InvalidPlanError, "Plan resource belongs to a different property" unless name.start_with?(prefix)
+        pattern = %r{\A#{Regexp.escape(property_name(property_id))}/#{collection}/[A-Za-z0-9_-]+\z}
+        return if name.is_a?(String) && pattern.match?(name)
+
+        raise InvalidPlanError, "Plan resource belongs to a different property"
       end
 
       def property_name(property_id)
-        id = property_id.to_s
-        raise ConfigurationError, "Invalid property ID" unless id.match?(/\A\d{1,50}\z/)
+        unless property_id.is_a?(String) && property_id.match?(/\A\d{1,50}\z/)
+          raise ConfigurationError, "Invalid property ID; expected a numeric string"
+        end
 
-        "properties/#{id}"
+        "properties/#{property_id}"
       end
 
       def google_retention(value)
@@ -418,17 +367,42 @@ module AnalyticsOps
         Array(field(value, name))
       end
 
-      def boolean?(value)
-        value == true
+      def remote_boolean(value)
+        return false if value.nil?
+        return value if [true, false].include?(value)
+
+        raise RemoteError, "Google Admin API returned an invalid boolean"
+      end
+
+      def optional_boolean(value)
+        return nil if value.nil?
+
+        remote_boolean(value)
       end
 
       def resource_id(name)
-        name.to_s.split("/").last.to_s
+        id = remote_string(name, "resource name").split("/").last
+        return id unless id.nil? || id.empty?
+
+        raise RemoteError, "Google Admin API returned an invalid resource name"
       end
 
-      def optional_string(value)
-        string = value.to_s
+      def optional_string(value, label)
+        return nil if value.nil?
+
+        string = remote_string(value, label)
         string.empty? ? nil : string
+      end
+
+      def remote_string(value, label)
+        raise RemoteError, "Google Admin API returned an invalid #{label}" unless value.is_a?(String)
+
+        string = value.encode(Encoding::UTF_8)
+        raise EncodingError unless string.valid_encoding?
+
+        string
+      rescue EncodingError
+        raise RemoteError, "Google Admin API returned an invalid #{label}"
       end
 
       def normalize_enum(value, prefix: nil)
@@ -443,6 +417,20 @@ module AnalyticsOps
 
       def enum_symbol(value)
         enum_name(value).upcase.to_sym
+      end
+
+      def validate_transport(value)
+        transport = value.to_sym if value.respond_to?(:to_sym)
+        return transport if %i[grpc rest].include?(transport)
+
+        raise ConfigurationError, "transport must be grpc or rest"
+      end
+
+      def validate_timeout(value)
+        return nil if value.nil?
+        return value if [Integer, Float].any? { |type| value.is_a?(type) } && value.finite? && value.positive?
+
+        raise ConfigurationError, "timeout must be a finite positive number"
       end
     end
   end

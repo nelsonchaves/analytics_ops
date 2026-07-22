@@ -44,6 +44,7 @@ module AnalyticsOps
 
     def initialize(arguments, out:, err:, input:, workspace_loader:, connection_loader:, command_runner:)
       @arguments = arguments.dup
+      @json_requested = json_option_present?(@arguments)
       @out = out
       @err = err
       @input = input
@@ -60,13 +61,22 @@ module AnalyticsOps
 
     def execute_command
       command = @arguments.shift
-      return write(@out, help) if [nil, "help", "--help", "-h"].include?(command)
-      return write(@out, AnalyticsOps::VERSION) if ["version", "--version", "-v"].include?(command)
-      return unknown_command(command) unless COMMANDS.include?(command)
+      if [nil, "help", "--help", "-h"].include?(command)
+        raise OptionParser::InvalidArgument, "help does not accept arguments" if @arguments.any?
+
+        return write(@out, help)
+      end
+      if ["version", "--version", "-v"].include?(command)
+        raise OptionParser::InvalidArgument, "version does not accept arguments" if @arguments.any?
+
+        return write(@out, AnalyticsOps::VERSION)
+      end
 
       options = Options.new(@arguments)
       @options = options.values
       options.parse!(command)
+      return unknown_command(command) unless COMMANDS.include?(command)
+
       execute(command)
     end
 
@@ -170,8 +180,10 @@ module AnalyticsOps
 
       if human?
         action = result.created? ? "Created" : "Using"
-        @out.puts "#{action} #{result.config_path}"
-        @out.puts "Connected #{result.profile} to #{result.property.display_name} (property #{result.property.id})."
+        @out.puts "#{action} #{Redaction.message(result.config_path)}"
+        @out.puts "Connected #{Redaction.message(result.profile)} to " \
+                  "#{Redaction.message(result.property.display_name)} " \
+                  "(property #{Redaction.message(result.property.id)})."
         @out.puts "Next: analytics-ops overview"
         SUCCESS
       else
@@ -280,15 +292,16 @@ module AnalyticsOps
     end
 
     def human?
-      @options.fetch(:format) == "human"
+      @options&.fetch(:format, "human") == "human"
     end
 
     def json?
-      @options.fetch(:format) == "json"
+      @json_requested || @options&.fetch(:format, "human") == "json"
     end
 
     def presenter
-      @presenter ||= Presenter.new(out: @out, format: @options.fetch(:format))
+      format = json? ? "json" : @options&.fetch(:format, "human") || "human"
+      @presenter ||= Presenter.new(out: @out, format:)
     end
 
     def write(stream, message, status = SUCCESS)
@@ -297,8 +310,20 @@ module AnalyticsOps
     end
 
     def unknown_command(command)
+      if json?
+        error = OptionParser::InvalidArgument.new("Unknown command: #{Redaction.message(command)}")
+        return error_response(error, USAGE_ERROR)
+      end
+
       @err.puts "Unknown command: #{Redaction.message(command)}"
       write(@err, "Run `analytics-ops help` for available commands.", USAGE_ERROR)
+    end
+
+    def json_option_present?(arguments)
+      arguments.each_with_index.any? do |argument, index|
+        argument == "--json" || argument == "--format=json" || argument == "-fjson" ||
+          (%w[--format -f].include?(argument) && arguments[index + 1] == "json")
+      end
     end
 
     def help

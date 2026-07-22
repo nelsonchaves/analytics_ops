@@ -58,4 +58,40 @@ RSpec.describe AnalyticsOps::Planner do
     expect(result.changes).to be_empty
     expect(result).not_to be_drift
   end
+
+  it "carries restricted-data classification into currency metric creation" do
+    remote = snapshot(custom_metrics: [])
+
+    result = described_class.new(desired_state:, snapshot: remote).call
+    metric = result.changes.find { |change| change.resource_type == "custom_metric" }
+
+    expect(metric.after.fetch("restricted_metric_types")).to eq(["revenue_data"])
+  end
+
+  it "reports a restricted-data classification conflict without changing the metric" do
+    conflicting_metric = AnalyticsOps::Resources::CustomMetric.new(
+      **custom_metric.to_h.transform_keys(&:to_sym),
+      restricted_metric_types: ["cost_data"]
+    )
+    remote = snapshot(custom_metrics: [conflicting_metric])
+
+    result = described_class.new(desired_state:, snapshot: remote).call
+
+    expect(result.changes.none? { |change| change.resource_type == "custom_metric" }).to be(true)
+    expect(result.findings.map(&:code)).to include("immutable_metric_conflict")
+  end
+
+  it "reports an unsupported remote retention value instead of emitting an invalid plan" do
+    unusual = AnalyticsOps::Resources::Retention.new(
+      name: "properties/123456789/dataRetentionSettings",
+      event_data: "unspecified",
+      user_data: "14_months",
+      reset_on_new_activity: false
+    )
+
+    result = described_class.new(desired_state:, snapshot: snapshot(retention: unusual)).call
+
+    expect(result.changes.none? { |change| change.resource_type == "retention" }).to be(true)
+    expect(result.findings.map(&:code)).to include("retention_unsupported")
+  end
 end

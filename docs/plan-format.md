@@ -63,6 +63,10 @@ before/after payloads, reversibility, and manual rollback guidance.
 Resource names in update payloads must belong to the plan's property. Immutable
 identity fields cannot change between `before` and `after`.
 
+Currency custom-metric payloads include `restricted_metric_types` with
+`cost_data`, `revenue_data`, or both. The classification is never inferred or
+changed automatically.
+
 ## Findings are not operations
 
 A finding may identify inaccessible resources, immutable conflicts, manual UI

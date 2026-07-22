@@ -31,13 +31,10 @@ module AnalyticsOps
       ].freeze
 
       def initialize(client: nil, credentials: nil, transport: :grpc, timeout: nil, logger: nil)
-        transport = transport.to_sym
-        raise ConfigurationError, "transport must be grpc or rest" unless %i[grpc rest].include?(transport)
-
         @client = client
         @credentials = credentials
-        @transport = transport
-        @timeout = timeout
+        @transport = validate_transport(transport)
+        @timeout = validate_timeout(timeout)
         @logger = logger
       end
 
@@ -56,10 +53,7 @@ module AnalyticsOps
       end
 
       def batch(property_id, definitions)
-        unless definitions.is_a?(Array) && definitions.length.between?(1, Reports::OverviewResult::MAX_REPORTS) &&
-               definitions.all? { |definition| definition.is_a?(Reports::Definition) && !definition.realtime? }
-          raise InvalidRequestError, "batch must contain 1 to 5 standard report definitions"
-        end
+        validate_batch_definitions!(definitions)
 
         property = property_name(property_id)
         requests = definitions.map do |definition|
@@ -82,13 +76,13 @@ module AnalyticsOps
 
       def compatibility
         specification = Gem::Specification.find_by_name("google-analytics-data")
-        {
+        Canonical.immutable(
           "package" => specification.name,
           "version" => specification.version.to_s,
           "requirement" => PACKAGE_REQUIREMENT.to_s,
           "supported" => PACKAGE_REQUIREMENT.satisfied_by?(specification.version),
           "transport" => @transport.to_s
-        }.freeze
+        )
       rescue Gem::LoadError => error
         raise UnsupportedCapabilityError, Redaction.message(error.message)
       end
@@ -195,34 +189,31 @@ module AnalyticsOps
         translate_errors { generated_client.public_send(method_name, request) }
       end
 
-      def translate_errors
-        yield
-      rescue AnalyticsOps::Error
-        raise
-      rescue StandardError => error
-        translated = case error.class.name
-                     when /Unauthenticated|Google::Auth|Signet::Authorization/
-                       AuthenticationError
-                     when /PermissionDenied|Forbidden/
-                       AuthorizationError
-                     when /ResourceExhausted|TooManyRequests/
-                       QuotaError
-                     when /DeadlineExceeded|Timeout|ETIMEDOUT/
-                       TimeoutError
-                     when /InvalidArgument|FailedPrecondition|NotFound/
-                       InvalidRequestError
-                     when /Google::Cloud::|GRPC::|Faraday::|HTTP/
-                       RemoteError
-                     end
-        raise unless translated
+      def translate_errors(&)
+        ErrorTranslation.call(&)
+      end
 
-        raise translated, Redaction.message(error.message)
+      def validate_batch_definitions!(definitions)
+        valid = definitions.is_a?(Array) &&
+                definitions.length.between?(1, Reports::OverviewResult::MAX_REPORTS) &&
+                definitions.all? { |definition| definition.is_a?(Reports::Definition) && !definition.realtime? }
+        raise InvalidRequestError, "batch must contain 1 to 5 standard report definitions" unless valid
+
+        return if definitions.map(&:name).uniq.length == definitions.length
+
+        raise InvalidRequestError, "batch report definitions must have unique names"
       end
 
       def normalize_result(definition, response)
-        dimension_headers = array_field(response, :dimension_headers).map { |header| field(header, :name).to_s }
-        metric_headers = array_field(response, :metric_headers).map { |header| field(header, :name).to_s }
-        unless dimension_headers == definition.dimensions && metric_headers == definition.metrics
+        dimension_headers = array_field(response, :dimension_headers).map do |header|
+          remote_string(field(header, :name), "dimension header")
+        end
+        metric_headers = array_field(response, :metric_headers).map do |header|
+          remote_string(field(header, :name), "metric header")
+        end
+        expected_dimensions = definition.dimensions.dup
+        expected_dimensions << "dateRange" if definition.date_ranges.length > 1
+        unless dimension_headers == expected_dimensions && metric_headers == definition.metrics
           raise RemoteError, "Google Data API returned headers that do not match the requested report"
         end
 
@@ -248,28 +239,31 @@ module AnalyticsOps
       end
 
       def values(row, name)
-        array_field(row, name).map { |value| field(value, :value).to_s }
+        array_field(row, name).map { |value| remote_string(field(value, :value), "row value") }
       end
 
       def metadata(response)
         response_metadata = field(response, :metadata)
-        result = {
-          "data_loss_from_other_row" => boolean?(field(response_metadata, :data_loss_from_other_row)),
-          "subject_to_thresholding" => boolean?(field(response_metadata, :subject_to_thresholding)),
-          "currency_code" => optional_string(field(response_metadata, :currency_code)),
-          "time_zone" => optional_string(field(response_metadata, :time_zone)),
-          "empty_reason" => optional_string(field(response_metadata, :empty_reason)),
-          "sampling" => sampling(response_metadata),
-          "property_quota" => quota(field(response, :property_quota))
-        }
+        result = {}
+        if response_metadata
+          result = {
+            "data_loss_from_other_row" => metadata_boolean(field(response_metadata, :data_loss_from_other_row)),
+            "subject_to_thresholding" => metadata_boolean(field(response_metadata, :subject_to_thresholding)),
+            "currency_code" => optional_string(field(response_metadata, :currency_code), "currency code"),
+            "time_zone" => optional_string(field(response_metadata, :time_zone), "time zone"),
+            "empty_reason" => optional_string(field(response_metadata, :empty_reason), "empty reason"),
+            "sampling" => sampling(response_metadata)
+          }
+        end
+        result["property_quota"] = quota(field(response, :property_quota))
         result.reject { |_key, value| value.nil? || value == [] }
       end
 
       def sampling(response_metadata)
         array_field(response_metadata, :sampling_metadatas).map do |sample|
           {
-            "samples_read_count" => integer(field(sample, :samples_read_count), 0),
-            "sampling_space_size" => integer(field(sample, :sampling_space_size), 0)
+            "samples_read_count" => nonnegative_integer(field(sample, :samples_read_count), "sampling counter"),
+            "sampling_space_size" => nonnegative_integer(field(sample, :sampling_space_size), "sampling counter")
           }
         end
       end
@@ -282,17 +276,18 @@ module AnalyticsOps
           next unless status
 
           result[name.to_s] = {
-            "consumed" => integer(field(status, :consumed), 0),
-            "remaining" => integer(field(status, :remaining), 0)
+            "consumed" => nonnegative_integer(field(status, :consumed), "quota counter"),
+            "remaining" => nonnegative_integer(field(status, :remaining), "quota counter")
           }
         end
       end
 
       def property_name(property_id)
-        id = property_id.to_s
-        raise ConfigurationError, "Invalid property ID" unless id.match?(/\A\d{1,50}\z/)
+        unless property_id.is_a?(String) && property_id.match?(/\A\d{1,50}\z/)
+          raise ConfigurationError, "Invalid property ID; expected a numeric string"
+        end
 
-        "properties/#{id}"
+        "properties/#{property_id}"
       end
 
       def field(value, name)
@@ -308,26 +303,58 @@ module AnalyticsOps
         Array(field(value, name))
       end
 
-      def optional_string(value)
-        string = value.to_s
+      def optional_string(value, label)
+        return nil if value.nil?
+
+        string = remote_string(value, label)
         string.empty? ? nil : string
       end
 
-      def integer(value, default)
-        value.nil? ? default : Integer(value)
-      rescue ArgumentError, TypeError
-        default
+      def remote_string(value, label)
+        raise RemoteError, "Google Data API returned an invalid #{label}" unless value.is_a?(String)
+
+        string = value.encode(Encoding::UTF_8)
+        raise EncodingError unless string.valid_encoding?
+
+        string
+      rescue EncodingError
+        raise RemoteError, "Google Data API returned an invalid #{label}"
+      end
+
+      def nonnegative_integer(value, label)
+        return 0 if value.nil?
+        return value if value.is_a?(Integer) && !value.negative?
+
+        raise RemoteError, "Google Data API returned an invalid #{label}"
       end
 
       def response_row_count(response, default)
         value = field(response, :row_count)
-        value.nil? ? default : Integer(value)
-      rescue ArgumentError, TypeError
+        return default if value.nil?
+        return value if value.is_a?(Integer) && !value.negative?
+
         raise RemoteError, "Google Data API returned an invalid row count"
       end
 
-      def boolean?(value)
-        value == true
+      def metadata_boolean(value)
+        return false if value.nil?
+        return value if [true, false].include?(value)
+
+        raise RemoteError, "Google Data API returned an invalid metadata boolean"
+      end
+
+      def validate_transport(value)
+        transport = value.to_sym if value.respond_to?(:to_sym)
+        return transport if %i[grpc rest].include?(transport)
+
+        raise ConfigurationError, "transport must be grpc or rest"
+      end
+
+      def validate_timeout(value)
+        return nil if value.nil?
+        return value if [Integer, Float].any? { |type| value.is_a?(type) } && value.finite? && value.positive?
+
+        raise ConfigurationError, "timeout must be a finite positive number"
       end
     end
   end

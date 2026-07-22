@@ -73,7 +73,8 @@ module AnalyticsOps
 
     # Registered custom metric.
     class CustomMetric < Value
-      fields :name, :parameter_name, :display_name, :description, :scope, :measurement_unit
+      fields :name, :parameter_name, :display_name, :description, :scope, :measurement_unit,
+             :restricted_metric_types
     end
   end
 end

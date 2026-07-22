@@ -3,6 +3,17 @@
 require "tmpdir"
 
 RSpec.describe AnalyticsOps::Configuration::Writer do
+  it "strictly validates result booleans" do
+    expect { described_class::Result.new(path: "config/analytics_ops.yml", created: "yes") }
+      .to raise_error(ArgumentError, /true or false/)
+  end
+
+  it "does not coerce numeric property identifiers" do
+    expect do
+      described_class.new.write_minimal("config/analytics_ops.yml", profile: "production", property_id: 123_456_789)
+    end.to raise_error(AnalyticsOps::ConfigurationError, /encoded as a string/)
+  end
+
   it "atomically creates the smallest valid production configuration" do
     Dir.mktmpdir("analytics-ops-writer") do |directory|
       path = File.join(directory, "config", "analytics_ops.yml")

@@ -26,7 +26,18 @@ stream_id: "987654321"
 
 Do not use account ID `100000001` or measurement ID `G-EXAMPLE1` in those
 fields. Unknown keys, ERB, YAML aliases, missing environment variables, and
-secret-shaped fields are intentionally rejected.
+secret- or credential-shaped material are intentionally rejected.
+
+Currency custom metrics require an explicit restricted-data classification:
+
+```yaml
+measurement_unit: currency
+restricted_metric_types: [revenue_data]
+```
+
+Use `cost_data`, `revenue_data`, or both according to the metric's meaning.
+Analytics Ops will not guess. User-data retention accepts only `2_months` or
+`14_months`; longer 360 periods apply only to event data.
 
 ## Authentication failure (exit 66)
 

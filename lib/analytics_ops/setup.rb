@@ -18,11 +18,12 @@ module AnalyticsOps
         unless property.is_a?(Resources::Property)
           raise ArgumentError, "property must be an AnalyticsOps::Resources::Property"
         end
+        raise ArgumentError, "created must be true or false" unless [true, false].include?(created)
 
         @config_path = config_path.to_s.dup.freeze
         @profile = profile.to_s.dup.freeze
         @property = property
-        @created = created == true
+        @created = created
         freeze
       end
 
@@ -64,14 +65,21 @@ module AnalyticsOps
     def initialize(connection:, config:, profile:, property_id: nil, noninteractive: false,
                    client_id_file: nil, no_launch_browser: false, input: $stdin, out: $stdout,
                    err: $stderr, command_runner: nil)
-      validate_options!(profile, property_id, noninteractive, client_id_file)
+      validate_options!(
+        config:,
+        profile:,
+        property_id:,
+        noninteractive:,
+        client_id_file:,
+        no_launch_browser:
+      )
       @connection = connection
       @config = config
       @profile = profile.to_s
-      @property_id = property_id&.to_s
-      @noninteractive = noninteractive == true
+      @property_id = property_id
+      @noninteractive = noninteractive
       @client_id_file = client_id_file
-      @no_launch_browser = no_launch_browser == true
+      @no_launch_browser = no_launch_browser
       @input = input
       @out = out
       @err = err
@@ -97,13 +105,42 @@ module AnalyticsOps
 
     private
 
-    def validate_options!(profile, property_id, noninteractive, client_id_file)
-      raise ConfigurationError, "Setup profile is invalid" unless PROFILE.match?(profile.to_s)
-      if property_id && !PROPERTY_ID.match?(property_id.to_s)
-        raise ConfigurationError, "Setup property must be a numeric GA4 property ID"
-      end
+    def validate_options!(config:, profile:, property_id:, noninteractive:, client_id_file:, no_launch_browser:)
+      validate_config_path!(config)
+      validate_profile!(profile)
+      validate_property_id!(property_id)
+      validate_boolean_options!(noninteractive, no_launch_browser)
       raise ConfigurationError, "Non-interactive setup requires a property ID" if noninteractive && !property_id
-      return unless client_id_file && !File.file?(client_id_file)
+
+      validate_client_id_file!(client_id_file)
+    end
+
+    def validate_config_path!(config)
+      valid = config.is_a?(String) && !config.empty? && !config.match?(/[\u0000-\u001f\u007f]/)
+      return if valid
+
+      raise ConfigurationError, "Setup configuration path is invalid"
+    end
+
+    def validate_profile!(profile)
+      raise ConfigurationError, "Setup profile is invalid" unless PROFILE.match?(profile.to_s)
+    end
+
+    def validate_property_id!(property_id)
+      return if property_id.nil? || (property_id.is_a?(String) && PROPERTY_ID.match?(property_id))
+
+      raise ConfigurationError, "Setup property must be a numeric GA4 property ID"
+    end
+
+    def validate_boolean_options!(noninteractive, no_launch_browser)
+      valid = [true, false].include?(noninteractive) && [true, false].include?(no_launch_browser)
+      return if valid
+
+      raise ConfigurationError, "Setup boolean options must be true or false"
+    end
+
+    def validate_client_id_file!(client_id_file)
+      return if client_id_file.nil? || (client_id_file.is_a?(String) && File.file?(client_id_file))
 
       raise ConfigurationError, "Desktop OAuth client file does not exist"
     end
@@ -142,7 +179,10 @@ module AnalyticsOps
       @out.puts "Google login is required. Analytics Ops will run the official gcloud ADC command."
       @out.puts "This may replace the local ADC credentials used by other development tools."
       succeeded = @command_runner.run(authentication_arguments, input: @input, out: @out, err: @err)
-      return if succeeded
+      if succeeded
+        @connection.reload_credentials!
+        return
+      end
 
       raise AuthenticationError,
             "Google ADC login did not complete. If Google blocked the Analytics scope, create a Desktop OAuth " \
@@ -198,8 +238,9 @@ module AnalyticsOps
     def prompt_for_property(choices)
       @out.puts "Choose a Google Analytics property:"
       choices.each.with_index(1) do |choice, index|
-        @out.puts "  #{index}. #{choice.fetch("display_name")} — #{choice.fetch("account_display_name")} " \
-                  "(property #{choice.fetch("id")})"
+        @out.puts "  #{index}. #{Redaction.message(choice.fetch("display_name"))} — " \
+                  "#{Redaction.message(choice.fetch("account_display_name"))} " \
+                  "(property #{Redaction.message(choice.fetch("id"))})"
       end
       @out.print "Property number: "
       @out.flush

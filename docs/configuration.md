@@ -86,6 +86,9 @@ profiles:
         description: Non-sensitive calculated estimate
         scope: event
         measurement_unit: currency
+        # Google requires currency metrics to be classified explicitly.
+        restricted_metric_types:
+          - revenue_data
 
     # Checklist findings only; Analytics Ops does not claim to manage these.
     manual_requirements:
@@ -113,12 +116,13 @@ All three fields are required when `retention` is present:
 
 - `event_data`: `2_months`, `14_months`, `26_months`, `38_months`, or
   `50_months`
-- `user_data`: the same values
+- `user_data`: `2_months` or `14_months`
 - `reset_on_new_activity`: `true` or `false`
 
-Google may restrict longer periods by property type or account capabilities.
-An API rejection is returned as a typed error; Analytics Ops does not silently
-substitute a different period.
+The 26-, 38-, and 50-month event periods are available only to Analytics 360
+properties. Google does not allow those periods for user data, so Analytics
+Ops rejects them locally. An API rejection for an ineligible event period is
+returned as a typed error; the gem never substitutes a different period.
 
 ### Key events
 
@@ -130,6 +134,8 @@ substitute a different period.
 Required fields are `parameter_name`, `display_name`, and `scope`.
 Supported scopes are `event`, `user`, and `item`.
 `disallow_ads_personalization` is valid only for user-scoped dimensions.
+Display names must start with a letter and contain only letters, numbers,
+spaces, and underscores, matching Google's create/update contract.
 
 Identity is `scope + parameter_name`; display name and description are
 mutable. Immutable conflicts are findings, not automatic replacement.
@@ -142,8 +148,14 @@ Required fields are `parameter_name`, `display_name`, and
 `standard`, `currency`, `feet`, `meters`, `kilometers`, `miles`,
 `milliseconds`, `seconds`, `minutes`, and `hours`.
 
-Identity is `parameter_name`. Scope and unit are immutable; Analytics Ops
-will not archive and recreate a conflicting metric.
+A `currency` metric also requires `restricted_metric_types` containing
+`cost_data`, `revenue_data`, or both. This classification controls restricted
+data access in Google Analytics, so Analytics Ops never guesses it. The field
+must be omitted or empty for non-currency metrics.
+
+Identity is `parameter_name`. Scope, unit, and restricted-data classification
+are treated as immutable; Analytics Ops will not archive and recreate a
+conflicting metric.
 
 ## Environment variables
 
@@ -162,8 +174,9 @@ execution, YAML alias support, or Ruby-object deserialization.
 ## Strict safety rules
 
 - The file is limited to 1 MiB.
+- YAML nesting is bounded and duplicate mapping keys are rejected.
 - Unknown fields fail closed.
-- Secret-shaped fields fail closed at any depth.
+- Secret-shaped fields and credential-shaped values fail closed.
 - Numeric identifiers must be YAML strings.
 - User-visible strings reject control characters.
 - Duplicate resource identities fail validation.

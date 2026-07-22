@@ -126,18 +126,19 @@ plans and applies in one step.
 | `--client-id-file PATH` | Pass an owned Desktop OAuth client to `gcloud`; setup only |
 | `--no-launch-browser` | Print Google's login URL instead of opening a browser; setup only |
 | `--transport grpc|rest` | Official Google-client transport |
-| `--timeout SECONDS` | Positive API call timeout |
+| `--timeout SECONDS` | Finite positive API call timeout |
 | `--log-level LEVEL` | Structured request metadata: `debug`, `info`, `warn`, or `error`; default `warn` |
 | `--yes` | Approve every operation in a saved plan; apply only |
 | `--non-interactive` | Never prompt; apply requires `--yes`, setup requires `--property` and existing ADC |
 
-Unknown arguments and options fail instead of being ignored. CSV is rejected
-for anything except report results. CSV cells beginning with spreadsheet
-formula characters are prefixed safely.
+Unknown arguments, conflicting format flags, and non-finite timeouts fail
+instead of being ignored. CSV is rejected for anything except report results.
+CSV cells whose first meaningful character is a spreadsheet formula marker
+are prefixed safely, including cells hidden behind whitespace or controls.
 
 ## Output
 
-- Human output is readable in a terminal.
+- Human output removes terminal control characters from remote text.
 - JSON output uses stable gem-owned fields and structured errors.
 - CSV contains one report's headers and rows only; it is rejected for batched
   overviews, plans, snapshots, and errors.

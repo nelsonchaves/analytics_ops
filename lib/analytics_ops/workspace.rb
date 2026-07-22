@@ -27,7 +27,7 @@ module AnalyticsOps
       attr_reader :checks
 
       def initialize(checks:)
-        @checks = Canonical.deep_freeze(checks)
+        @checks = Canonical.immutable(checks)
         freeze
       end
 

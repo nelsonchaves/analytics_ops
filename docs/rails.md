@@ -22,9 +22,11 @@ The generator creates only:
 - `config/analytics_ops.yml`
 - `bin/analytics-ops` with executable mode
 
-The generated file has a `development` profile and fake-safe placeholders.
-Add a profile matching the Rails environment you intend to operate, or set
-`ANALYTICS_OPS_PROFILE`.
+The generated file has a minimal `development` profile and a fake-safe
+property-ID placeholder. It contains no active stream, retention, key-event,
+dimension, or metric policy, so installation alone cannot produce a mutation
+plan. Add managed settings only after reviewing the configuration guide. Add
+a profile matching another Rails environment, or set `ANALYTICS_OPS_PROFILE`.
 
 ## Rake tasks
 

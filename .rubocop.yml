@@ -32,9 +32,13 @@ Metrics/CyclomaticComplexity:
 
 Metrics/MethodLength:
   Max: 35
+  AllowedMethods:
+    - build_desired_state
 
 Metrics/ModuleLength:
   Max: 120
+  Exclude:
+    - "lib/analytics_ops/configuration/schema.rb"
 
 Metrics/ParameterLists:
   CountKeywordArgs: false

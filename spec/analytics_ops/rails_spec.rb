@@ -38,10 +38,11 @@ RSpec.describe "optional Rails integration" do
 
       document = AnalyticsOps::Configuration.load(
         configuration,
-        environment: { "GA4_PROPERTY_ID" => "123456789", "GA4_STREAM_ID" => "987654321" }
+        environment: { "GA4_PROPERTY_ID" => "123456789" }
       )
 
       expect(document.profile("development").property_id).to eq("123456789")
+      expect(document.profile("development").streams).to be_empty
       expect(File.stat(executable).mode & 0o777).to eq(0o755)
       expect(File.read(configuration)).not_to match(/private_key|access_token|client_secret/)
     end

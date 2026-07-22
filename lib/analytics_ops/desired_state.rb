@@ -11,8 +11,8 @@ module AnalyticsOps
 
     def initialize(profile:, property_id:, streams:, retention:, key_events:, custom_dimensions:, custom_metrics:,
                    manual_requirements:, google_signals:)
-      @profile = profile.freeze
-      @property_id = property_id.freeze
+      @profile = Canonical.immutable(profile)
+      @property_id = Canonical.immutable(property_id)
       @streams = Canonical.immutable(streams)
       @retention = Canonical.immutable(retention)
       @key_events = Canonical.immutable(key_events)

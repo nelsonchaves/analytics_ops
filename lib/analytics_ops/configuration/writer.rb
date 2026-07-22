@@ -13,8 +13,10 @@ module AnalyticsOps
         attr_reader :path
 
         def initialize(path:, created:)
+          raise ArgumentError, "created must be true or false" unless [true, false].include?(created)
+
           @path = path.to_s.dup.freeze
-          @created = created == true
+          @created = created
           freeze
         end
 
@@ -57,9 +59,13 @@ module AnalyticsOps
       private
 
       def validated_state(profile, property_id)
+        unless property_id.is_a?(String)
+          raise ConfigurationError, "property_id must be a numeric identifier encoded as a string"
+        end
+
         Validator.new(
           "version" => 1,
-          "profiles" => { profile.to_s => { "property_id" => property_id.to_s } }
+          "profiles" => { profile.to_s => { "property_id" => property_id } }
         ).call.profile(profile)
       end
 

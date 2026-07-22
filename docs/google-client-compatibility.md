@@ -40,6 +40,7 @@ protobuf classes for:
 - `list_key_events` and `create_key_event`
 - list/create/update custom dimensions
 - list/create/update custom metrics
+- custom-metric restricted cost/revenue enum translation
 - update web data-stream default URI
 - `run_report`, `batch_run_reports`, and `run_realtime_report`
 

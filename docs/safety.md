@@ -23,6 +23,9 @@ An apply needs all of these:
 The applier executes only the operations stored in the file. It never replans
 during apply and never turns findings into changes.
 
+The Ruby API also requires the literal boolean `true`; truthy strings or
+objects do not count as confirmation.
+
 ## Stale plans
 
 Every plan fingerprints normalized managed remote state with SHA-256. If that
@@ -77,7 +80,7 @@ with mode 0600. Loading rejects:
 - unknown resource payload fields
 - unsupported operations
 - no-op updates and immutable-field changes
-- secret-shaped fields and control characters
+- secret-shaped fields, credential-shaped text, and control characters
 - resource names for another property
 
 Workspace and adapter checks provide additional cross-property protection.

@@ -64,6 +64,12 @@ RSpec.describe AnalyticsOps::Workspace do
     expect(overview.property_quota.dig("tokens_per_day", "remaining")).to eq(199_995)
   end
 
+  it "keeps overview property identifiers strictly string-typed" do
+    expect do
+      AnalyticsOps::Reports::OverviewResult.new(property_id: 123_456_789, reports: [result])
+    end.to raise_error(AnalyticsOps::RemoteError, /property ID/)
+  end
+
   it "rejects a realtime definition passed to report" do
     definition = AnalyticsOps::Reports::Catalog.fetch("realtime_events")
 

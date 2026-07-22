@@ -46,4 +46,26 @@ RSpec.describe AnalyticsOps::Connection do
       an_object_having_attributes(name: "setup_connectivity", limit: 1)
     )
   end
+
+  it "rejects non-string property identifiers before calling either API" do
+    expect { connection.verify(123_456_789) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /numeric string/)
+  end
+
+  it "resets lazy generated clients after an external ADC login" do
+    generated_admin = instance_double(AnalyticsOps::Clients::Admin)
+    generated_data = instance_double(AnalyticsOps::Clients::Data)
+    allow(AnalyticsOps::Clients::Admin).to receive(:new).and_return(generated_admin)
+    allow(AnalyticsOps::Clients::Data).to receive(:new).and_return(generated_data)
+    connection = described_class.new
+
+    connection.send(:admin)
+    connection.send(:data)
+    connection.reload_credentials!
+    connection.send(:admin)
+    connection.send(:data)
+
+    expect(AnalyticsOps::Clients::Admin).to have_received(:new).twice
+    expect(AnalyticsOps::Clients::Data).to have_received(:new).twice
+  end
 end

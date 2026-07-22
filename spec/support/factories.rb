@@ -60,7 +60,8 @@ module AnalyticsOpsFactories
       display_name: "Project value",
       description: "Estimated project value",
       scope: "event",
-      measurement_unit: "currency"
+      measurement_unit: "currency",
+      restricted_metric_types: ["revenue_data"]
     )
   end
 
@@ -105,7 +106,8 @@ module AnalyticsOpsFactories
           "display_name" => "Project value",
           "description" => "Estimated project value",
           "scope" => "event",
-          "measurement_unit" => "currency"
+          "measurement_unit" => "currency",
+          "restricted_metric_types" => ["revenue_data"]
         }
       ],
       manual_requirements: ["email_redaction_enabled"],

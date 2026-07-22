@@ -53,6 +53,7 @@ RSpec.describe AnalyticsOps::Clients::Admin do
     expect(google::ListDataStreamsRequest.new(stream_request).parent).to eq("properties/123456789")
     expect(accounts.first.id).to eq("100000001")
     expect(accounts.first.properties.first.fetch("streams").first.fetch("measurement_id")).to eq("G-EXAMPLE1")
+    expect(accounts).to be_frozen
     expect(accounts.first).to be_frozen
   end
 
@@ -134,7 +135,8 @@ RSpec.describe AnalyticsOps::Clients::Admin do
         display_name: "Project value",
         description: "Estimated project value",
         scope: :EVENT,
-        measurement_unit: :CURRENCY
+        measurement_unit: :CURRENCY,
+        restricted_metric_type: [:REVENUE_DATA]
       )]
     end
 
@@ -152,6 +154,7 @@ RSpec.describe AnalyticsOps::Clients::Admin do
     expect(result.retention.event_data).to eq("14_months")
     expect(result.custom_dimensions.first.scope).to eq("event")
     expect(result.custom_metrics.first.measurement_unit).to eq("currency")
+    expect(result.custom_metrics.first.restricted_metric_types).to eq(["revenue_data"])
   end
 
   it "proves every supported mutation request against pinned protobuf coercion" do
@@ -215,7 +218,7 @@ RSpec.describe AnalyticsOps::Clients::Admin do
     )
     metric_create = {
       "parameter_name" => "estimate_total", "display_name" => "Estimate total", "description" => "Estimate",
-      "scope" => "event", "measurement_unit" => "currency"
+      "scope" => "event", "measurement_unit" => "currency", "restricted_metric_types" => ["revenue_data"]
     }
     adapter.apply_change(
       change(
@@ -246,6 +249,7 @@ RSpec.describe AnalyticsOps::Clients::Admin do
     expect(dimension_update_request.update_mask.paths).to include("description")
     metric_create_request = google::CreateCustomMetricRequest.new(requests.fetch(:create_custom_metric))
     expect(metric_create_request.custom_metric.measurement_unit).to eq(:CURRENCY)
+    expect(metric_create_request.custom_metric.restricted_metric_type).to eq([:REVENUE_DATA])
     metric_update_request = google::UpdateCustomMetricRequest.new(requests.fetch(:update_custom_metric))
     expect(metric_update_request.update_mask.paths).to contain_exactly("display_name", "description")
   end
@@ -264,6 +268,77 @@ RSpec.describe AnalyticsOps::Clients::Admin do
     allow(client).to receive(:get_property).and_raise(Google::Cloud::DeadlineExceededError, "deadline")
 
     expect { adapter.snapshot("123456789") }.to raise_error(AnalyticsOps::TimeoutError)
+  end
+
+  it "maps raw socket failures to a typed remote error" do
+    allow(client).to receive(:get_property).and_raise(SocketError, "connection reset")
+
+    expect { adapter.snapshot("123456789") }.to raise_error(AnalyticsOps::RemoteError, /connection reset/)
+  end
+
+  it "translates failures raised while a paginated response fetches later pages" do
+    response = Object.new
+    allow(response).to receive(:to_a).and_raise(SocketError, "second page failed")
+    allow(client).to receive(:list_account_summaries).and_return(response)
+
+    expect { adapter.discover }.to raise_error(AnalyticsOps::RemoteError, /second page failed/)
+  end
+
+  it "strictly validates public client options and property IDs" do
+    expect { described_class.new(client:, transport: nil) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /transport/)
+    expect { described_class.new(client:, timeout: 0) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /timeout/)
+    expect { adapter.snapshot(123_456_789) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /property ID/)
+  end
+
+  it "rejects malformed booleans in normalized Admin responses" do
+    allow(client).to receive(:get_property).and_return(
+      google::Property.new(name: "properties/123456789", display_name: "Example property")
+    )
+    allow(client).to receive(:list_data_streams).and_return([])
+    allow(client).to receive(:get_data_retention_settings).and_return(
+      {
+        name: "properties/123456789/dataRetentionSettings",
+        event_data_retention: :FOURTEEN_MONTHS,
+        user_data_retention: :FOURTEEN_MONTHS,
+        reset_user_data_on_new_activity: "false"
+      }
+    )
+    allow(client).to receive(:list_key_events).and_return([])
+    allow(client).to receive(:list_custom_dimensions).and_return([])
+    allow(client).to receive(:list_custom_metrics).and_return([])
+
+    expect { adapter.snapshot("123456789") }
+      .to raise_error(AnalyticsOps::RemoteError, /invalid boolean/)
+  end
+
+  it "does not coerce malformed remote strings" do
+    allow(client).to receive(:get_property).and_return(
+      { name: 123_456_789, display_name: "Example property" }
+    )
+
+    expect { adapter.snapshot("123456789") }
+      .to raise_error(AnalyticsOps::RemoteError, /invalid property name/)
+  end
+
+  it "rejects snapshot resources returned for another property" do
+    allow(client).to receive(:get_property).and_return(
+      google::Property.new(name: "properties/123456789", display_name: "Example property")
+    )
+    allow(client).to receive(:list_data_streams).and_return(
+      [google::DataStream.new(name: "properties/999999999/dataStreams/987654321", type: :WEB_DATA_STREAM)]
+    )
+    allow(client).to receive(:get_data_retention_settings).and_return(
+      google::DataRetentionSettings.new(name: "properties/123456789/dataRetentionSettings")
+    )
+    allow(client).to receive(:list_key_events).and_return([])
+    allow(client).to receive(:list_custom_dimensions).and_return([])
+    allow(client).to receive(:list_custom_metrics).and_return([])
+
+    expect { adapter.snapshot("123456789") }
+      .to raise_error(AnalyticsOps::RemoteError, /different property/)
   end
 
   it "does not expose generated Google objects publicly" do

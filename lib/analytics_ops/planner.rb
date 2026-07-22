@@ -90,6 +90,13 @@ module AnalyticsOps
       end
 
       current = remote.to_h
+      unless Plan::RETENTION_VALUES.include?(current.fetch("event_data")) &&
+             Plan::USER_RETENTION_VALUES.include?(current.fetch("user_data"))
+        finding("drift", "retention_unsupported", "property:#{@desired.property_id}:retention",
+                "Google returned a retention duration that Analytics Ops cannot safely change")
+        return
+      end
+
       after = current.merge(desired)
       return if equivalent?(current, after, %w[event_data user_data reset_on_new_activity])
 
@@ -153,9 +160,10 @@ module AnalyticsOps
 
         before = current.to_h
         if before.fetch("scope") != desired.fetch("scope") ||
-           before.fetch("measurement_unit") != desired.fetch("measurement_unit")
+           before.fetch("measurement_unit") != desired.fetch("measurement_unit") ||
+           before.fetch("restricted_metric_types") != desired.fetch("restricted_metric_types")
           finding("drift", "immutable_metric_conflict", "metric:#{identity}",
-                  "Custom metric scope or measurement unit differs and will not be recreated automatically")
+                  "Custom metric scope, unit, or restricted-data classification differs and will not be recreated")
           next
         end
 

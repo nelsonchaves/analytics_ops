@@ -10,8 +10,9 @@ module AnalyticsOps
       attr_reader :property_id, :reports, :property_quota
 
       def initialize(property_id:, reports:)
-        id = property_id.to_s
-        raise RemoteError, "Overview property ID is invalid" unless PROPERTY_ID.match?(id)
+        unless property_id.is_a?(String) && PROPERTY_ID.match?(property_id)
+          raise RemoteError, "Overview property ID is invalid"
+        end
         unless reports.is_a?(Array) && reports.length.between?(1, MAX_REPORTS) &&
                reports.all? { |report| report.is_a?(Result) && report.kind == "standard" }
           raise RemoteError, "Overview must contain 1 to #{MAX_REPORTS} standard report results"
@@ -20,7 +21,7 @@ module AnalyticsOps
         names = reports.map(&:name)
         raise RemoteError, "Overview report names must be unique" unless names.uniq.length == names.length
 
-        @property_id = id.dup.freeze
+        @property_id = property_id.dup.freeze
         @reports = reports.dup.freeze
         @property_quota = Canonical.immutable(latest_quota)
         freeze

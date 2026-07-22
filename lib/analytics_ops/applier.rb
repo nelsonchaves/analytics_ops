@@ -15,7 +15,8 @@ module AnalyticsOps
     end
 
     def call(plan, confirm: false)
-      raise ConfirmationRequiredError, "Applying a plan requires explicit confirmation" unless confirm
+      raise ConfirmationRequiredError, "Applying a plan requires explicit boolean confirmation" unless confirm == true
+      raise InvalidPlanError, "plan must be an AnalyticsOps::Plan" unless plan.is_a?(Plan)
 
       current = @admin.snapshot(plan.property_id)
       unless current.fingerprint == plan.snapshot_fingerprint

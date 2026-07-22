@@ -16,10 +16,14 @@ module AnalyticsOps
       RETENTION_KEYS = %w[event_data user_data reset_on_new_activity].freeze
       GOOGLE_SIGNALS_KEYS = %w[state experimental].freeze
       DIMENSION_KEYS = %w[parameter_name display_name description scope disallow_ads_personalization].freeze
-      METRIC_KEYS = %w[parameter_name display_name description scope measurement_unit].freeze
+      METRIC_KEYS = %w[
+        parameter_name display_name description scope measurement_unit restricted_metric_types
+      ].freeze
       RETENTION_VALUES = %w[2_months 14_months 26_months 38_months 50_months].freeze
+      USER_RETENTION_VALUES = %w[2_months 14_months].freeze
       DIMENSION_SCOPES = %w[event user item].freeze
       METRIC_UNITS = %w[standard currency feet meters kilometers miles milliseconds seconds minutes hours].freeze
+      RESTRICTED_METRIC_TYPES = %w[cost_data revenue_data].freeze
       SECRET_KEY = /
         (?:\A|_)
         (?:
@@ -29,6 +33,7 @@ module AnalyticsOps
         (?:\z|_)
       /ix
       NAME = /\A[a-z][a-z0-9_]*\z/i
+      DISPLAY_NAME = /\A[A-Za-z][A-Za-z0-9_ ]{0,81}\z/
       EVENT_NAME = /\A[a-z][a-z0-9_]{0,39}\z/i
       ID = /\A\d{1,50}\z/
 
@@ -114,7 +119,7 @@ module AnalyticsOps
         retention = hash!(raw, path)
         exact_keys!(retention, RETENTION_KEYS, path)
         event_data = enum!(required(retention, "event_data", path), RETENTION_VALUES, "#{path}.event_data")
-        user_data = enum!(required(retention, "user_data", path), RETENTION_VALUES, "#{path}.user_data")
+        user_data = enum!(required(retention, "user_data", path), USER_RETENTION_VALUES, "#{path}.user_data")
         reset = boolean!(required(retention, "reset_on_new_activity", path), "#{path}.reset_on_new_activity")
 
         { "event_data" => event_data, "user_data" => user_data, "reset_on_new_activity" => reset }
@@ -181,17 +186,39 @@ module AnalyticsOps
           exact_keys!(metric, METRIC_KEYS, item_path)
           scope = enum!(required(metric, "scope", item_path), ["event"], "#{item_path}.scope")
 
+          measurement_unit = enum!(metric.fetch("measurement_unit", "standard"), METRIC_UNITS,
+                                   "#{item_path}.measurement_unit")
+          restricted_types = validate_restricted_metric_types(
+            metric.fetch("restricted_metric_types", []), measurement_unit, item_path
+          )
+
           {
             "parameter_name" => parameter_name!(required(metric, "parameter_name", item_path), scope, item_path),
             "display_name" => display_name!(required(metric, "display_name", item_path), item_path),
             "description" => description!(metric.fetch("description", ""), item_path),
             "scope" => scope,
-            "measurement_unit" => enum!(metric.fetch("measurement_unit", "standard"), METRIC_UNITS,
-                                        "#{item_path}.measurement_unit")
+            "measurement_unit" => measurement_unit,
+            "restricted_metric_types" => restricted_types
           }
         end
 
         ensure_unique!(values, ["parameter_name"], path)
+      end
+
+      def validate_restricted_metric_types(raw, measurement_unit, item_path)
+        path = "#{item_path}.restricted_metric_types"
+        values = array!(raw, path).map.with_index do |value, index|
+          enum!(value, RESTRICTED_METRIC_TYPES, "#{path}[#{index}]")
+        end
+        values = ensure_unique_strings!(values, path)
+        if measurement_unit == "currency" && values.empty?
+          raise ConfigurationError, "#{path} requires cost_data or revenue_data for a currency metric"
+        end
+        if measurement_unit != "currency" && !values.empty?
+          raise ConfigurationError, "#{path} is valid only for a currency metric"
+        end
+
+        values
       end
 
       def validate_manual_requirements(raw, profile_path)
@@ -218,8 +245,9 @@ module AnalyticsOps
 
       def display_name!(value, path)
         name = string!(value, "#{path}.display_name")
-        if name.empty? || name.length > 82 || name.match?(/[\u0000-\u001f]/)
-          raise ConfigurationError, "#{path}.display_name must contain 1 to 82 printable characters"
+        unless DISPLAY_NAME.match?(name)
+          raise ConfigurationError,
+                "#{path}.display_name must start with a letter and use only letters, numbers, spaces, or underscores"
         end
 
         name
@@ -239,7 +267,8 @@ module AnalyticsOps
 
         string = string!(value, path)
         uri = URI.parse(string)
-        unless %w[http https].include?(uri.scheme) && uri.host && !uri.userinfo
+        unless string.length <= 2_048 && !string.match?(/[\u0000-\u001f\u007f]/) &&
+               %w[http https].include?(uri.scheme) && uri.host && !uri.userinfo
           raise ConfigurationError, "#{path} must be an absolute HTTP or HTTPS URI without credentials"
         end
 
@@ -308,7 +337,13 @@ module AnalyticsOps
       end
 
       def string!(value, path)
-        return value if value.is_a?(String)
+        if value.is_a?(String)
+          if Redaction.credential_shaped?(value)
+            raise ConfigurationError, "Credential-shaped value at #{path} is forbidden"
+          end
+
+          return value
+        end
 
         raise ConfigurationError, "#{path} must be a string"
       end

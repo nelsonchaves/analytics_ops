@@ -4,22 +4,19 @@ module AnalyticsOps
   module Reports
     # Immutable normalized Data API response.
     class Result
-      attr_reader :name, :kind, :dimension_headers, :metric_headers, :rows, :row_count, :metadata
+      attr_reader :name, :kind, :dimension_headers, :metric_headers, :headers, :rows, :row_count, :metadata
 
       def initialize(name:, kind:, dimension_headers:, metric_headers:, rows:, row_count:, metadata:)
         @name = string(name, "name")
         @kind = kind_value(kind)
         @dimension_headers = normalize_headers(dimension_headers, "dimension_headers")
         @metric_headers = normalize_headers(metric_headers, "metric_headers")
+        @headers = Canonical.immutable(@dimension_headers + @metric_headers)
         validate_header_uniqueness!
         @rows = normalized_rows(rows)
         @row_count = count(row_count)
-        @metadata = hash(metadata, "metadata")
+        @metadata = normalized_metadata(metadata)
         freeze
-      end
-
-      def headers
-        dimension_headers + metric_headers
       end
 
       def to_h
@@ -37,7 +34,7 @@ module AnalyticsOps
       private
 
       def string(value, label)
-        return value.dup.freeze if value.is_a?(String) && !value.empty?
+        return value.dup.freeze if valid_utf8?(value) && !value.empty?
 
         raise RemoteError, "Report result #{label} is invalid"
       end
@@ -49,9 +46,10 @@ module AnalyticsOps
       end
 
       def normalize_headers(values, label)
-        unless values.is_a?(Array) && values.all? { |value| value.is_a?(String) && !value.empty? }
-          raise RemoteError, "Report result #{label} is invalid"
+        valid = values.is_a?(Array) && values.all? do |value|
+          valid_utf8?(value) && !value.empty? && value.length <= 128 && !value.match?(/[\u0000-\u001f\u007f]/)
         end
+        raise RemoteError, "Report result #{label} is invalid" unless valid
 
         Canonical.immutable(values)
       end
@@ -66,6 +64,9 @@ module AnalyticsOps
         normalized = values.map do |row|
           value = hash(row, "row")
           raise RemoteError, "Report result row fields do not match headers" unless value.keys.sort == headers.sort
+          unless value.values.all? { |item| valid_utf8?(item) }
+            raise RemoteError, "Report result row values must be valid UTF-8 strings"
+          end
 
           value
         end
@@ -84,6 +85,34 @@ module AnalyticsOps
         end
 
         Canonical.immutable(value)
+      end
+
+      def normalized_metadata(value)
+        raise RemoteError, "Report result metadata must be an object" unless value.is_a?(Hash)
+
+        validate_metadata_value!(value, "metadata")
+        Canonical.immutable(value)
+      end
+
+      def validate_metadata_value!(value, path)
+        case value
+        when Hash
+          raise RemoteError, "Report result #{path} keys must be strings" unless value.keys.all?(String)
+
+          value.each { |key, child| validate_metadata_value!(child, "#{path}.#{key}") }
+        when Array
+          value.each.with_index { |child, index| validate_metadata_value!(child, "#{path}[#{index}]") }
+        when String, Integer, TrueClass, FalseClass, NilClass
+          raise RemoteError, "Report result #{path} must be valid UTF-8" if value.is_a?(String) && !valid_utf8?(value)
+        when Float
+          raise RemoteError, "Report result #{path} must be finite" unless value.finite?
+        else
+          raise RemoteError, "Report result #{path} has an unsupported value"
+        end
+      end
+
+      def valid_utf8?(value)
+        value.is_a?(String) && value.encoding == Encoding::UTF_8 && value.valid_encoding?
       end
     end
   end

@@ -69,11 +69,12 @@ module AnalyticsOps
           "required" => %w[event_data user_data reset_on_new_activity],
           "properties" => {
             "event_data" => { "$ref" => "#/$defs/retentionValue" },
-            "user_data" => { "$ref" => "#/$defs/retentionValue" },
+            "user_data" => { "$ref" => "#/$defs/userRetentionValue" },
             "reset_on_new_activity" => { "type" => "boolean" }
           }
         },
         "retentionValue" => { "enum" => Configuration::Validator::RETENTION_VALUES },
+        "userRetentionValue" => { "enum" => Configuration::Validator::USER_RETENTION_VALUES },
         "googleSignals" => {
           "type" => "object", "additionalProperties" => false,
           "required" => %w[state experimental],
@@ -84,22 +85,64 @@ module AnalyticsOps
           "required" => %w[parameter_name display_name scope],
           "properties" => {
             "parameter_name" => { "type" => "string", "pattern" => "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
-            "display_name" => { "type" => "string", "minLength" => 1, "maxLength" => 82 },
-            "description" => { "type" => "string", "maxLength" => 150 },
+            "display_name" => {
+              "type" => "string", "pattern" => "^[A-Za-z][A-Za-z0-9_ ]{0,81}$"
+            },
+            "description" => {
+              "type" => "string", "maxLength" => 150, "pattern" => "^[^\\u0000-\\u001F\\u007F]*$"
+            },
             "scope" => { "enum" => Configuration::Validator::DIMENSION_SCOPES },
             "disallow_ads_personalization" => { "type" => "boolean" }
-          }
+          },
+          "allOf" => [
+            {
+              "if" => { "properties" => { "scope" => { "const" => "user" } } },
+              "then" => {
+                "properties" => {
+                  "parameter_name" => { "type" => "string", "pattern" => "^[A-Za-z][A-Za-z0-9_]{0,23}$" }
+                }
+              }
+            },
+            {
+              "if" => {
+                "required" => ["disallow_ads_personalization"],
+                "properties" => { "disallow_ads_personalization" => { "const" => true } }
+              },
+              "then" => { "properties" => { "scope" => { "const" => "user" } } }
+            }
+          ]
         },
         "customMetric" => {
           "type" => "object", "additionalProperties" => false,
           "required" => %w[parameter_name display_name scope],
           "properties" => {
             "parameter_name" => { "type" => "string", "pattern" => "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
-            "display_name" => { "type" => "string", "minLength" => 1, "maxLength" => 82 },
-            "description" => { "type" => "string", "maxLength" => 150 },
+            "display_name" => {
+              "type" => "string", "pattern" => "^[A-Za-z][A-Za-z0-9_ ]{0,81}$"
+            },
+            "description" => {
+              "type" => "string", "maxLength" => 150, "pattern" => "^[^\\u0000-\\u001F\\u007F]*$"
+            },
             "scope" => { "const" => "event" },
-            "measurement_unit" => { "enum" => Configuration::Validator::METRIC_UNITS }
-          }
+            "measurement_unit" => { "enum" => Configuration::Validator::METRIC_UNITS },
+            "restricted_metric_types" => {
+              "type" => "array", "uniqueItems" => true,
+              "items" => { "enum" => Configuration::Validator::RESTRICTED_METRIC_TYPES }
+            }
+          },
+          "allOf" => [
+            {
+              "if" => {
+                "required" => ["measurement_unit"],
+                "properties" => { "measurement_unit" => { "const" => "currency" } }
+              },
+              "then" => {
+                "required" => ["restricted_metric_types"],
+                "properties" => { "restricted_metric_types" => { "minItems" => 1 } }
+              },
+              "else" => { "properties" => { "restricted_metric_types" => { "maxItems" => 0 } } }
+            }
+          ]
         }
       }
     )

@@ -68,6 +68,32 @@ RSpec.describe AnalyticsOps::Setup do
     end.to raise_error(AnalyticsOps::ConfigurationError, /requires a property ID/)
   end
 
+  it "strictly validates boolean options and string property IDs" do
+    connection = instance_double(AnalyticsOps::Connection)
+
+    expect do
+      described_class.new(
+        connection:,
+        config: "config/analytics_ops.yml",
+        profile: "production",
+        property_id: 123_456_789
+      )
+    end.to raise_error(AnalyticsOps::ConfigurationError, /numeric GA4 property ID/)
+    expect do
+      described_class.new(
+        connection:,
+        config: "config/analytics_ops.yml",
+        profile: "production",
+        noninteractive: "false"
+      )
+    end.to raise_error(AnalyticsOps::ConfigurationError, /true or false/)
+
+    expect do
+      described_class::Result.new(config_path: "config/analytics_ops.yml", profile: "production",
+                                  property:, created: nil)
+    end.to raise_error(ArgumentError, /true or false/)
+  end
+
   it "explains how to enable either API when property verification finds it disabled" do
     connection = instance_double(AnalyticsOps::Connection, properties: [account_with(property)])
     allow(connection).to receive(:verify)

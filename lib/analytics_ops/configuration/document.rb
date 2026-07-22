@@ -10,7 +10,7 @@ module AnalyticsOps
 
       def initialize(version:, profiles:)
         @version = version
-        @profiles = Canonical.deep_freeze(profiles)
+        @profiles = Canonical.immutable(profiles)
         freeze
       end
 

@@ -49,4 +49,41 @@ RSpec.describe "network safety" do
       expect(status).to be_success, error
     end
   end
+
+  it "constructs both official transports lazily without making a request" do
+    script = <<~RUBY
+      require "socket"
+      class << TCPSocket
+        def new(*) = raise("network attempted through TCPSocket")
+        alias open new
+      end
+      class << Socket
+        def tcp(*) = raise("network attempted through Socket.tcp")
+      end
+      require "analytics_ops"
+      require "googleauth"
+      credentials = Google::Auth::UserRefreshCredentials.new(
+        client_id: "obviously-fake.apps.googleusercontent.test",
+        client_secret: "obviously-fake",
+        refresh_token: "obviously-fake",
+        scope: ["https://www.googleapis.com/auth/analytics.readonly"]
+      )
+      def credentials.universe_domain = "googleapis.com"
+
+      [:grpc, :rest].each do |transport|
+        admin = AnalyticsOps::Clients::Admin.new(credentials: credentials, transport: transport)
+        data = AnalyticsOps::Clients::Data.new(credentials: credentials, transport: transport)
+        abort "missing Admin client" unless admin.send(:client)
+        abort "missing Data client" unless data.send(:client)
+      end
+    RUBY
+
+    _output, error, status = Open3.capture3(
+      RbConfig.ruby,
+      "-I#{File.expand_path("../../lib", __dir__)}",
+      "-e", script
+    )
+
+    expect(status).to be_success, error
+  end
 end

@@ -24,15 +24,19 @@ module AnalyticsOps
     CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
     SECRET_KEY = Configuration::Validator::SECRET_KEY
     RETENTION_VALUES = Configuration::Validator::RETENTION_VALUES
+    USER_RETENTION_VALUES = Configuration::Validator::USER_RETENTION_VALUES
     DIMENSION_SCOPES = Configuration::Validator::DIMENSION_SCOPES
     METRIC_UNITS = Configuration::Validator::METRIC_UNITS
+    RESTRICTED_METRIC_TYPES = Configuration::Validator::RESTRICTED_METRIC_TYPES
 
     RESOURCE_FIELDS = {
       "data_stream" => %w[id name display_name type default_uri measurement_id],
       "retention" => %w[name event_data user_data reset_on_new_activity],
       "key_event" => %w[event_name counting_method],
       "custom_dimension" => %w[parameter_name display_name description scope disallow_ads_personalization],
-      "custom_metric" => %w[parameter_name display_name description scope measurement_unit]
+      "custom_metric" => %w[
+        parameter_name display_name description scope measurement_unit restricted_metric_types
+      ]
     }.freeze
     NAMED_DEFINITION_FIELDS = {
       "custom_dimension" => ["name", *RESOURCE_FIELDS.fetch("custom_dimension")],
@@ -307,7 +311,8 @@ module AnalyticsOps
     end
 
     def self.printable_string(value, path, minimum: 1, maximum: 500)
-      unless value.is_a?(String) && value.length.between?(minimum, maximum) && !CONTROL_CHARACTERS.match?(value)
+      unless value.is_a?(String) && value.length.between?(minimum, maximum) && !CONTROL_CHARACTERS.match?(value) &&
+             !Redaction.credential_shaped?(value)
         raise InvalidPlanError, "Invalid #{path}"
       end
 
@@ -380,7 +385,7 @@ module AnalyticsOps
       after = payload_hash(change.after, "#{path}.after")
       fields = RESOURCE_FIELDS.fetch(change.resource_type)
       self.class.exact_keys!(after, fields, "#{path}.after")
-      validate_resource_values!(change.resource_type, after, "#{path}.after", named: false)
+      validate_resource_values!(change.resource_type, after, "#{path}.after", named: false, desired: true)
       validate_identity!(change, after, path)
     end
 
@@ -388,8 +393,8 @@ module AnalyticsOps
       fields = NAMED_DEFINITION_FIELDS.fetch(change.resource_type, RESOURCE_FIELDS.fetch(change.resource_type))
       self.class.exact_keys!(before, fields, "#{path}.before")
       self.class.exact_keys!(after, fields, "#{path}.after")
-      validate_resource_values!(change.resource_type, before, "#{path}.before", named: true)
-      validate_resource_values!(change.resource_type, after, "#{path}.after", named: true)
+      validate_resource_values!(change.resource_type, before, "#{path}.before", named: true, desired: false)
+      validate_resource_values!(change.resource_type, after, "#{path}.after", named: true, desired: true)
       validate_identity!(change, after, path)
       validate_immutable_fields!(change.resource_type, before, after, path)
       validate_property_resource_name!(change.resource_type, before, path)
@@ -402,38 +407,79 @@ module AnalyticsOps
       hash
     end
 
-    def validate_resource_values!(resource_type, payload, path, named:)
+    def validate_resource_values!(resource_type, payload, path, named:, desired:)
       case resource_type
       when "data_stream"
-        id_string!(payload.fetch("id"), "#{path}.id")
-        resource_name!(payload.fetch("name"), "dataStreams", "#{path}.name")
-        text!(payload.fetch("display_name"), "#{path}.display_name", minimum: 0, maximum: 100)
-        enum!(payload.fetch("type"), %w[web android ios unspecified], "#{path}.type")
-        optional_uri!(payload.fetch("default_uri"), "#{path}.default_uri")
-        optional_text!(payload.fetch("measurement_id"), "#{path}.measurement_id", maximum: 64)
+        validate_data_stream_values!(payload, path, desired:)
       when "retention"
-        resource_name!(payload.fetch("name"), "dataRetentionSettings", "#{path}.name", singleton: true)
-        enum!(payload.fetch("event_data"), RETENTION_VALUES, "#{path}.event_data")
-        enum!(payload.fetch("user_data"), RETENTION_VALUES, "#{path}.user_data")
-        boolean!(payload.fetch("reset_on_new_activity"), "#{path}.reset_on_new_activity")
+        validate_retention_values!(payload, path)
       when "key_event"
-        event_name!(payload.fetch("event_name"), "#{path}.event_name")
-        enum!(payload.fetch("counting_method"), %w[once_per_event once_per_session], "#{path}.counting_method")
+        validate_key_event_values!(payload, path)
       when "custom_dimension"
-        resource_name!(payload.fetch("name"), "customDimensions", "#{path}.name") if named
-        parameter_name!(payload.fetch("parameter_name"), "#{path}.parameter_name")
-        text!(payload.fetch("display_name"), "#{path}.display_name", minimum: 1, maximum: 82)
-        text!(payload.fetch("description"), "#{path}.description", minimum: 0, maximum: 150)
-        enum!(payload.fetch("scope"), DIMENSION_SCOPES, "#{path}.scope")
-        boolean!(payload.fetch("disallow_ads_personalization"), "#{path}.disallow_ads_personalization")
+        validate_custom_dimension_values!(payload, path, named:, desired:)
       when "custom_metric"
-        resource_name!(payload.fetch("name"), "customMetrics", "#{path}.name") if named
-        parameter_name!(payload.fetch("parameter_name"), "#{path}.parameter_name")
-        text!(payload.fetch("display_name"), "#{path}.display_name", minimum: 1, maximum: 82)
-        text!(payload.fetch("description"), "#{path}.description", minimum: 0, maximum: 150)
-        enum!(payload.fetch("scope"), ["event"], "#{path}.scope")
-        enum!(payload.fetch("measurement_unit"), METRIC_UNITS, "#{path}.measurement_unit")
+        validate_custom_metric_values!(payload, path, named:, desired:)
       end
+    end
+
+    def validate_data_stream_values!(payload, path, desired:)
+      id_string!(payload.fetch("id"), "#{path}.id")
+      resource_name!(payload.fetch("name"), "dataStreams", "#{path}.name")
+      text!(payload.fetch("display_name"), "#{path}.display_name", minimum: 0, maximum: 100)
+      enum!(payload.fetch("type"), ["web"], "#{path}.type")
+      optional_uri!(payload.fetch("default_uri"), "#{path}.default_uri")
+      raise InvalidPlanError, "Invalid #{path}.default_uri" if desired && payload.fetch("default_uri").nil?
+
+      optional_text!(payload.fetch("measurement_id"), "#{path}.measurement_id", maximum: 64)
+    end
+
+    def validate_retention_values!(payload, path)
+      resource_name!(payload.fetch("name"), "dataRetentionSettings", "#{path}.name", singleton: true)
+      enum!(payload.fetch("event_data"), RETENTION_VALUES, "#{path}.event_data")
+      enum!(payload.fetch("user_data"), USER_RETENTION_VALUES, "#{path}.user_data")
+      boolean!(payload.fetch("reset_on_new_activity"), "#{path}.reset_on_new_activity")
+    end
+
+    def validate_key_event_values!(payload, path)
+      event_name!(payload.fetch("event_name"), "#{path}.event_name")
+      enum!(payload.fetch("counting_method"), %w[once_per_event once_per_session], "#{path}.counting_method")
+    end
+
+    def validate_custom_dimension_values!(payload, path, named:, desired:)
+      resource_name!(payload.fetch("name"), "customDimensions", "#{path}.name") if named
+      scope = payload.fetch("scope")
+      maximum = scope == "user" ? 24 : 40
+      parameter_name!(payload.fetch("parameter_name"), "#{path}.parameter_name", maximum:)
+      display_name!(payload.fetch("display_name"), "#{path}.display_name", desired:)
+      text!(payload.fetch("description"), "#{path}.description", minimum: 0, maximum: 150)
+      enum!(scope, DIMENSION_SCOPES, "#{path}.scope")
+      disallow_ads = payload.fetch("disallow_ads_personalization")
+      boolean!(disallow_ads, "#{path}.disallow_ads_personalization")
+      return unless disallow_ads && scope != "user"
+
+      raise InvalidPlanError, "#{path}.disallow_ads_personalization is valid only for user scope"
+    end
+
+    def validate_custom_metric_values!(payload, path, named:, desired:)
+      resource_name!(payload.fetch("name"), "customMetrics", "#{path}.name") if named
+      parameter_name!(payload.fetch("parameter_name"), "#{path}.parameter_name")
+      display_name!(payload.fetch("display_name"), "#{path}.display_name", desired:)
+      text!(payload.fetch("description"), "#{path}.description", minimum: 0, maximum: 150)
+      enum!(payload.fetch("scope"), ["event"], "#{path}.scope")
+      measurement_unit = payload.fetch("measurement_unit")
+      enum!(measurement_unit, METRIC_UNITS, "#{path}.measurement_unit")
+      restricted_types = payload.fetch("restricted_metric_types")
+      enum_array!(restricted_types, RESTRICTED_METRIC_TYPES, "#{path}.restricted_metric_types")
+      validate_restricted_metric_types!(measurement_unit, restricted_types, path)
+    end
+
+    def validate_restricted_metric_types!(measurement_unit, restricted_types, path)
+      if measurement_unit == "currency" && restricted_types.empty?
+        raise InvalidPlanError, "#{path}.restricted_metric_types is required for a currency metric"
+      end
+      return if measurement_unit == "currency" || restricted_types.empty?
+
+      raise InvalidPlanError, "#{path}.restricted_metric_types is valid only for a currency metric"
     end
 
     def validate_identity!(change, payload, path)
@@ -456,7 +502,7 @@ module AnalyticsOps
 
     def validate_immutable_fields!(resource_type, before, after, path)
       mutable = MUTABLE_FIELDS.fetch(resource_type)
-      changed = before.keys.reject { |key| before[key] == after[key] }
+      changed = (before.keys | after.keys).reject { |key| before[key] == after[key] }
       forbidden = changed - mutable
       raise InvalidPlanError, "#{path} changes immutable field #{forbidden.first}" unless forbidden.empty?
       raise InvalidPlanError, "#{path} update does not change any mutable field" if changed.empty?
@@ -516,12 +562,27 @@ module AnalyticsOps
       self.class.pattern_string(value, path, EVENT_NAME)
     end
 
-    def parameter_name!(value, path)
-      self.class.pattern_string(value, path, PARAMETER_NAME)
+    def parameter_name!(value, path, maximum: 40)
+      self.class.pattern_string(value, path, PARAMETER_NAME, maximum:)
     end
 
     def text!(value, path, minimum:, maximum:)
       self.class.printable_string(value, path, minimum:, maximum:)
+    end
+
+    def display_name!(value, path, desired:)
+      text!(value, path, minimum: 1, maximum: 82)
+      return unless desired && !Configuration::Validator::DISPLAY_NAME.match?(value)
+
+      raise InvalidPlanError, "Invalid #{path}"
+    end
+
+    def enum_array!(value, allowed, path)
+      self.class.array(value, path)
+      unless value.all? { |item| item.is_a?(String) && allowed.include?(item) }
+        raise InvalidPlanError, "Invalid #{path}"
+      end
+      raise InvalidPlanError, "Duplicate values in #{path}" unless value.uniq.length == value.length
     end
 
     def optional_text!(value, path, maximum:)

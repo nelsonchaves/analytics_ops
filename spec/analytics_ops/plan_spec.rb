@@ -49,6 +49,14 @@ RSpec.describe AnalyticsOps::Plan do
     expect { described_class.from_h(raw) }.to raise_error(AnalyticsOps::InvalidPlanError, /message/)
   end
 
+  it "rejects credential-shaped text in saved plans" do
+    raw = copy(plan_hash)
+    raw.fetch("changes").first["rollback"] = "Bearer never-print-this"
+
+    expect { described_class.from_h(raw) }
+      .to raise_error(AnalyticsOps::InvalidPlanError, /rollback/)
+  end
+
   it "rejects resource identities that do not match their payload" do
     raw = copy(plan_hash)
     raw.fetch("changes").first["resource_identity"] = "stream:000000001"
@@ -75,6 +83,115 @@ RSpec.describe AnalyticsOps::Plan do
 
     expect { described_class.from_h(raw) }
       .to raise_error(AnalyticsOps::InvalidPlanError, /immutable field scope/)
+  end
+
+  it "enforces the shorter Google limit for user-scoped dimension parameters" do
+    raw = copy(plan_hash)
+    raw["changes"] = [{
+      "resource_type" => "custom_dimension",
+      "resource_identity" => "user:#{"a" * 25}",
+      "operation" => "create",
+      "api_maturity" => "beta",
+      "before" => nil,
+      "after" => {
+        "parameter_name" => "a" * 25,
+        "display_name" => "User dimension",
+        "description" => "",
+        "scope" => "user",
+        "disallow_ads_personalization" => false
+      },
+      "reversible" => true,
+      "rollback" => "Archive the custom dimension"
+    }]
+
+    expect { described_class.from_h(raw) }
+      .to raise_error(AnalyticsOps::InvalidPlanError, /parameter_name/)
+  end
+
+  it "rejects data-stream changes that the planner cannot safely generate" do
+    non_web = copy(plan_hash)
+    change = non_web.fetch("changes").find { |value| value.fetch("resource_type") == "data_stream" }
+    change.fetch("before")["type"] = "android"
+    change.fetch("after")["type"] = "android"
+
+    expect { described_class.from_h(non_web) }
+      .to raise_error(AnalyticsOps::InvalidPlanError, /type/)
+
+    missing_uri = copy(plan_hash)
+    change = missing_uri.fetch("changes").find { |value| value.fetch("resource_type") == "data_stream" }
+    change.fetch("after")["default_uri"] = nil
+
+    expect { described_class.from_h(missing_uri) }
+      .to raise_error(AnalyticsOps::InvalidPlanError, /default_uri/)
+  end
+
+  it "rejects event-only retention durations for user data" do
+    raw = copy(plan_hash)
+    change = raw.fetch("changes").find { |value| value.fetch("resource_type") == "retention" }
+    change.fetch("after")["user_data"] = "26_months"
+
+    expect { described_class.from_h(raw) }
+      .to raise_error(AnalyticsOps::InvalidPlanError, /user_data/)
+  end
+
+  it "allows ads-personalization exclusion only for user-scoped dimensions" do
+    raw = copy(plan_hash)
+    raw["changes"] = [{
+      "resource_type" => "custom_dimension",
+      "resource_identity" => "event:category",
+      "operation" => "create",
+      "api_maturity" => "beta",
+      "before" => nil,
+      "after" => {
+        "parameter_name" => "category",
+        "display_name" => "Category",
+        "description" => "",
+        "scope" => "event",
+        "disallow_ads_personalization" => true
+      },
+      "reversible" => true,
+      "rollback" => "Archive the custom dimension"
+    }]
+
+    expect { described_class.from_h(raw) }
+      .to raise_error(AnalyticsOps::InvalidPlanError, /only for user scope/)
+  end
+
+  it "requires currency metrics to declare their restricted-data classification" do
+    raw = copy(plan_hash)
+    raw["changes"] = [{
+      "resource_type" => "custom_metric",
+      "resource_identity" => "estimate_total",
+      "operation" => "create",
+      "api_maturity" => "beta",
+      "before" => nil,
+      "after" => {
+        "parameter_name" => "estimate_total",
+        "display_name" => "Estimate total",
+        "description" => "",
+        "scope" => "event",
+        "measurement_unit" => "currency",
+        "restricted_metric_types" => []
+      },
+      "reversible" => true,
+      "rollback" => "Archive the custom metric"
+    }]
+
+    expect { described_class.from_h(raw) }
+      .to raise_error(AnalyticsOps::InvalidPlanError, /required for a currency metric/)
+  end
+
+  it "rejects Google-invalid desired display names while accepting legacy names in before values" do
+    raw = copy(plan_hash)
+    change = raw.fetch("changes").find { |value| value.fetch("resource_type") == "custom_dimension" }
+    change.fetch("before")["display_name"] = "Legacy [name]"
+    change.fetch("after")["display_name"] = "New-name"
+
+    expect { described_class.from_h(raw) }
+      .to raise_error(AnalyticsOps::InvalidPlanError, /display_name/)
+
+    change.fetch("after")["display_name"] = "New name"
+    expect { described_class.from_h(raw) }.not_to raise_error
   end
 
   it "rejects unsafe operations and unsupported resource-operation pairs" do
@@ -118,5 +235,7 @@ RSpec.describe AnalyticsOps::Plan do
     expect(schema.dig("properties", "format_version", "const")).to eq(1)
     expect(schema.dig("$defs", "change", "oneOf").length).to eq(7)
     expect(schema.dig("$defs", "change", "additionalProperties")).to be(false)
+    expect(schema.dig("$defs", "dataStreamAfter", "properties", "type", "const")).to eq("web")
+    expect(schema.dig("$defs", "customDimensionCreate", "allOf")).not_to be_empty
   end
 end

@@ -31,12 +31,12 @@ Analytics Ops:
 
 - uses Application Default Credentials or an explicitly injected Google
   credential object
-- refuses credential-shaped configuration and plan fields
+- refuses credential-shaped configuration and plan fields or values
 - redacts common authorization material from translated errors
 - performs no network I/O while requiring the gem, loading YAML, or booting
   Rails
 - defaults to read-only commands
-- requires a strictly validated saved plan and explicit confirmation to mutate
+- requires a strictly validated saved plan and literal boolean confirmation to mutate
 - rejects stale and cross-property plans
 - excludes delete/archive operations from ordinary plans
 - never logs report results automatically

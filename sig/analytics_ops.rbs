@@ -116,6 +116,7 @@ module AnalyticsOps
       attr_reader description: String
       attr_reader scope: String
       attr_reader measurement_unit: String
+      attr_reader restricted_metric_types: Array[String]
     end
   end
 
@@ -334,7 +335,7 @@ module AnalyticsOps
         ?client: untyped,
         ?credentials: untyped,
         ?transport: Symbol,
-        ?timeout: Float?,
+        ?timeout: (Integer | Float)?,
         ?logger: untyped
       ) -> void
       def discover: (?include_streams: bool) -> Array[Resources::Account]
@@ -350,7 +351,7 @@ module AnalyticsOps
         ?client: untyped,
         ?credentials: untyped,
         ?transport: Symbol,
-        ?timeout: Float?,
+        ?timeout: (Integer | Float)?,
         ?logger: untyped
       ) -> void
       def run: (String property_id, Reports::Definition definition) -> Reports::Result
@@ -373,12 +374,13 @@ module AnalyticsOps
       ?data: Clients::Data?,
       ?credentials: untyped,
       ?transport: Symbol,
-      ?timeout: Float?,
+      ?timeout: (Integer | Float)?,
       ?logger: untyped
     ) -> void
     def discover: () -> Array[Resources::Account]
     def properties: () -> Array[Resources::Account]
     def verify: (String property_id) -> Verification
+    def reload_credentials!: () -> Connection
   end
 
   class Setup
@@ -441,7 +443,7 @@ module AnalyticsOps
       ?data: Clients::Data?,
       ?credentials: untyped,
       ?transport: Symbol,
-      ?timeout: Float?,
+      ?timeout: (Integer | Float)?,
       ?logger: untyped
     ) -> Workspace
     def initialize: (
@@ -450,7 +452,7 @@ module AnalyticsOps
       ?data: Clients::Data?,
       ?credentials: untyped,
       ?transport: Symbol,
-      ?timeout: Float?,
+      ?timeout: (Integer | Float)?,
       ?logger: untyped
     ) -> void
     def discover: () -> Array[Resources::Account]

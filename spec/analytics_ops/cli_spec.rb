@@ -65,12 +65,33 @@ RSpec.describe AnalyticsOps::CLI do
     expect(err).to be_empty
   end
 
+  it "rejects extra arguments for help and version" do
+    expect(run("help", "extra").first).to eq(described_class::USAGE_ERROR)
+    expect(run("version", "extra").first).to eq(described_class::USAGE_ERROR)
+  end
+
   it "returns a stable usage status for an unknown command" do
     status, out, err = run("unknown")
 
     expect(status).to eq(AnalyticsOps::CLI::USAGE_ERROR)
     expect(out).to be_empty
     expect(err).to include("Unknown command: unknown")
+  end
+
+  it "returns structured JSON for an unknown command when requested" do
+    status, output, error = run("unknown", "--json")
+
+    expect(status).to eq(AnalyticsOps::CLI::USAGE_ERROR)
+    expect(output).to be_empty
+    expect(JSON.parse(error).dig("error", "message")).to include("Unknown command: unknown")
+  end
+
+  it "keeps JSON errors structured even when an earlier option is invalid" do
+    status, output, error = run("report", "example", "--not-an-option", "--json")
+
+    expect(status).to eq(AnalyticsOps::CLI::USAGE_ERROR)
+    expect(output).to be_empty
+    expect(JSON.parse(error).dig("error", "type")).to eq("InvalidOption")
   end
 
   it "discovers properties before a configuration or workspace exists" do
@@ -163,6 +184,7 @@ RSpec.describe AnalyticsOps::CLI do
 
       [discovered_account]
     end
+    allow(connection).to receive(:reload_credentials!).and_return(connection)
     allow(connection).to receive(:verify)
       .with("123456789")
       .and_return(AnalyticsOps::Connection::Verification.new(property:))
@@ -188,6 +210,7 @@ RSpec.describe AnalyticsOps::CLI do
           a_string_including("analytics.readonly")
         )
       end
+      expect(connection).to have_received(:reload_credentials!).once
     end
   end
 
@@ -269,6 +292,83 @@ RSpec.describe AnalyticsOps::CLI do
     expect(csv).to eq("eventName,eventCount\n'=unsafe,12\n")
   end
 
+  it "neutralizes formula cells hidden behind whitespace in CSV" do
+    result = AnalyticsOps::Reports::Result.new(
+      name: "example",
+      kind: "standard",
+      dimension_headers: ["eventName"],
+      metric_headers: ["eventCount"],
+      rows: [
+        { "eventName" => "  =1+1", "eventCount" => "1" },
+        { "eventName" => "\t@SUM(1,1)", "eventCount" => "2" },
+        { "eventName" => "\u00a0+1", "eventCount" => "3" },
+        { "eventName" => "safe\e[31mvalue", "eventCount" => "4" }
+      ],
+      row_count: 4,
+      metadata: {}
+    )
+    workspace = double("Workspace", report: result)
+
+    status, output, error = run("report", "example", "--csv", workspace_loader: loader_for(workspace))
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(output).to include("'  =1+1", "'\t@SUM(1,1)", "'\u00a0+1")
+    expect(output).not_to include("\e")
+    expect(error).to be_empty
+  end
+
+  it "removes terminal controls from human discovery and report output" do
+    unsafe_account = AnalyticsOps::Resources::Account.new(
+      id: "100000001",
+      name: "accounts/100000001",
+      display_name: "Example\e[31m\nforged",
+      properties: [property.to_h]
+    )
+    connection = instance_double(AnalyticsOps::Connection, properties: [unsafe_account])
+    unsafe_result = AnalyticsOps::Reports::Result.new(
+      name: "example",
+      kind: "standard",
+      dimension_headers: ["eventName"],
+      metric_headers: ["eventCount"],
+      rows: [{ "eventName" => "value\e[2J\nforged", "eventCount" => "1" }],
+      row_count: 1,
+      metadata: {}
+    )
+    workspace = double("Workspace", report: unsafe_result)
+
+    _, properties_output, = run("properties", connection_loader: loader_for(connection))
+    _, report_output, = run("report", "example", workspace_loader: loader_for(workspace))
+
+    expect(properties_output).not_to include("\e", "\nforged")
+    expect(report_output).not_to include("\e", "\nforged")
+  end
+
+  it "removes terminal controls from human snapshots" do
+    unsafe_property = AnalyticsOps::Resources::Property.new(
+      id: "123456789",
+      name: "properties/123456789",
+      display_name: "Example\e[2J\nforged",
+      parent: "accounts/100000001",
+      property_type: "ordinary",
+      can_edit: true
+    )
+    workspace = double("Workspace", snapshot: snapshot(property: unsafe_property))
+
+    status, output, error = run("snapshot", workspace_loader: loader_for(workspace))
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(output).not_to include("\e", "\nforged")
+    expect(error).to be_empty
+  end
+
+  it "rejects conflicting output format options" do
+    status, output, error = run("report", "example", "--json", "--csv")
+
+    expect(status).to eq(described_class::USAGE_ERROR)
+    expect(output).to be_empty
+    expect(error).to include("output format")
+  end
+
   it "runs the default realtime recipe" do
     workspace = double("Workspace", realtime: report_result(kind: "realtime"))
 
@@ -331,6 +431,7 @@ RSpec.describe AnalyticsOps::CLI do
     expect(run("doctor", "extra").first).to eq(described_class::USAGE_ERROR)
     expect(run("audit", "--yes").first).to eq(described_class::USAGE_ERROR)
     expect(run("verify", "--output", "plan.json").first).to eq(described_class::USAGE_ERROR)
+    expect(run("doctor", "--timeout", "Infinity").first).to eq(described_class::USAGE_ERROR)
   end
 
   it "never prompts for non-interactive apply and requires --yes" do

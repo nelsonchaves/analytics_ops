@@ -19,7 +19,7 @@ This matrix describes Analytics Ops 0.2.0—not every method Google exposes.
 | Data retention | Managed | Reads and updates supported periods/reset behavior |
 | Key events | Managed | Reads and creates missing events; no delete |
 | Custom dimensions | Managed | Reads, creates, and updates display name/description; user ads flag where supported |
-| Custom metrics | Managed | Reads, creates, and updates display name/description |
+| Custom metrics | Managed | Reads and creates with explicit currency-data classification; updates display name/description |
 | Standard Data API reports | Audited | Immutable definitions and normalized results |
 | Realtime Data API reports | Audited | Immutable definitions and normalized results |
 | Batched overview | Audited | Five bounded standard reports through one `batchRunReports` call |

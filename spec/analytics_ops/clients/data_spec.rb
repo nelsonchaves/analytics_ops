@@ -73,6 +73,34 @@ RSpec.describe AnalyticsOps::Clients::Data do
     expect(request).not_to have_key(:date_ranges)
     expect(request).not_to have_key(:offset)
     expect(result.kind).to eq("realtime")
+    expect(result.metadata).to eq({})
+  end
+
+  it "accepts Google's automatic dateRange column for comparisons" do
+    definition = AnalyticsOps::Reports::Definition.new(
+      name: "comparison",
+      kind: "standard",
+      dimensions: ["date"],
+      metrics: ["activeUsers"],
+      date_ranges: [
+        { "start_date" => "28daysAgo", "end_date" => "15daysAgo", "name" => "previous" },
+        { "start_date" => "14daysAgo", "end_date" => "yesterday", "name" => "current" }
+      ]
+    )
+    allow(client).to receive(:run_report).and_return(
+      dimension_headers: [{ name: "date" }, { name: "dateRange" }],
+      metric_headers: [{ name: "activeUsers" }],
+      rows: [{
+        dimension_values: [{ value: "20260701" }, { value: "previous" }],
+        metric_values: [{ value: "10" }]
+      }],
+      row_count: 1
+    )
+
+    result = adapter.run("123456789", definition)
+
+    expect(result.dimension_headers).to eq(%w[date dateRange])
+    expect(result.rows.first.fetch("dateRange")).to eq("previous")
   end
 
   it "batches the bounded overview through the pinned official request contract" do
@@ -111,6 +139,9 @@ RSpec.describe AnalyticsOps::Clients::Data do
     allow(client).to receive(:batch_run_reports).and_return(reports: [])
     expect { adapter.batch("123456789", AnalyticsOps::Reports::Catalog.overview) }
       .to raise_error(AnalyticsOps::RemoteError, /batch size/)
+
+    expect { adapter.batch("123456789", [standard_definition, standard_definition]) }
+      .to raise_error(AnalyticsOps::InvalidRequestError, /unique names/)
   end
 
   it "coerces request hashes through the pinned official protobuf contracts" do
@@ -185,6 +216,13 @@ RSpec.describe AnalyticsOps::Clients::Data do
     end
   end
 
+  it "maps raw socket failures to a typed remote error" do
+    allow(client).to receive(:run_report).and_raise(SocketError, "failed to connect")
+
+    expect { adapter.run("123456789", standard_definition) }
+      .to raise_error(AnalyticsOps::RemoteError, /failed to connect/)
+  end
+
   it "rejects malformed response rows" do
     allow(client).to receive(:run_report).and_return(
       dimension_headers: [{ name: "eventName" }, { name: "customEvent:calculator_slug" }],
@@ -202,11 +240,62 @@ RSpec.describe AnalyticsOps::Clients::Data do
       .to raise_error(AnalyticsOps::RemoteError, /row.*not match/)
   end
 
+  it "does not coerce malformed remote header, row, or metadata values" do
+    bad_header = standard_response.merge(
+      dimension_headers: [{ name: 123 }, { name: "customEvent:calculator_slug" }]
+    )
+    allow(client).to receive(:run_report).and_return(bad_header)
+    expect { adapter.run("123456789", standard_definition) }
+      .to raise_error(AnalyticsOps::RemoteError, /invalid dimension header/)
+
+    bad_row = standard_response.merge(
+      rows: [{
+        dimension_values: [{ value: 123 }, { value: "concrete_volume" }],
+        metric_values: [{ value: "42" }, { value: "36" }]
+      }]
+    )
+    allow(client).to receive(:run_report).and_return(bad_row)
+    expect { adapter.run("123456789", standard_definition) }
+      .to raise_error(AnalyticsOps::RemoteError, /invalid row value/)
+
+    bad_metadata = standard_response.merge(metadata: { currency_code: 123 })
+    allow(client).to receive(:run_report).and_return(bad_metadata)
+    expect { adapter.run("123456789", standard_definition) }
+      .to raise_error(AnalyticsOps::RemoteError, /invalid currency code/)
+  end
+
   it "rejects a malformed response row count" do
-    allow(client).to receive(:run_report).and_return(standard_response.merge(row_count: "not-a-number"))
+    allow(client).to receive(:run_report).and_return(standard_response.merge(row_count: "1"))
 
     expect { adapter.run("123456789", standard_definition) }
       .to raise_error(AnalyticsOps::RemoteError, /invalid row count/)
+  end
+
+  it "rejects malformed quota counters instead of reporting zero" do
+    malformed = standard_response.merge(
+      property_quota: { tokens_per_day: { consumed: "12", remaining: 10 } }
+    )
+    allow(client).to receive(:run_report).and_return(malformed)
+
+    expect { adapter.run("123456789", standard_definition) }
+      .to raise_error(AnalyticsOps::RemoteError, /quota counter/)
+  end
+
+  it "rejects malformed response metadata booleans" do
+    malformed = standard_response.merge(metadata: { subject_to_thresholding: "yes" })
+    allow(client).to receive(:run_report).and_return(malformed)
+
+    expect { adapter.run("123456789", standard_definition) }
+      .to raise_error(AnalyticsOps::RemoteError, /metadata boolean/)
+  end
+
+  it "strictly validates public client options and property IDs" do
+    expect { described_class.new(client:, transport: nil) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /transport/)
+    expect { described_class.new(client:, timeout: -1) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /timeout/)
+    expect { adapter.run(123_456_789, standard_definition) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /property ID/)
   end
 
   it "logs only structured request metadata, never report rows" do

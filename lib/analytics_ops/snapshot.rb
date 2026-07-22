@@ -8,12 +8,23 @@ module AnalyticsOps
     attr_reader :property, :streams, :retention, :key_events, :custom_dimensions, :custom_metrics
 
     def initialize(property:, streams:, retention:, key_events:, custom_dimensions:, custom_metrics:)
+      unless property.is_a?(Resources::Property)
+        raise ArgumentError, "property must be an AnalyticsOps::Resources::Property"
+      end
+      unless retention.nil? || retention.is_a?(Resources::Retention)
+        raise ArgumentError, "retention must be an AnalyticsOps::Resources::Retention or nil"
+      end
+
       @property = property
-      @streams = sort(streams, &:id)
+      @streams = sorted_resources(streams, Resources::DataStream, "streams", &:id)
       @retention = retention
-      @key_events = sort(key_events, &:event_name)
-      @custom_dimensions = sort(custom_dimensions) { |dimension| [dimension.scope, dimension.parameter_name] }
-      @custom_metrics = sort(custom_metrics, &:parameter_name)
+      @key_events = sorted_resources(key_events, Resources::KeyEvent, "key_events", &:event_name)
+      @custom_dimensions = sorted_resources(
+        custom_dimensions, Resources::CustomDimension, "custom_dimensions"
+      ) do |item|
+        [item.scope, item.parameter_name]
+      end
+      @custom_metrics = sorted_resources(custom_metrics, Resources::CustomMetric, "custom_metrics", &:parameter_name)
       freeze
     end
 
@@ -38,7 +49,11 @@ module AnalyticsOps
 
     private
 
-    def sort(values, &)
+    def sorted_resources(values, type, label, &)
+      unless values.is_a?(Array) && values.all?(type)
+        raise ArgumentError, "#{label} must contain only #{type.name} values"
+      end
+
       Canonical.deep_freeze(values.sort_by(&))
     end
   end

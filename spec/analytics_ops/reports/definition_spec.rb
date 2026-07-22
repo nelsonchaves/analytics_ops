@@ -74,6 +74,94 @@ RSpec.describe AnalyticsOps::Reports::Definition do
     end.to raise_error(AnalyticsOps::InvalidRequestError, /limit/i)
   end
 
+  it "accepts only documented date formats and rejects reversed relative ranges" do
+    base = {
+      name: "example",
+      kind: "standard",
+      dimensions: [],
+      metrics: ["activeUsers"]
+    }
+
+    expect do
+      described_class.new(
+        **base,
+        date_ranges: [{ "start_date" => "2026-W01-1", "end_date" => "2026-01-07" }]
+      )
+    end.to raise_error(AnalyticsOps::InvalidRequestError, /date/i)
+    expect do
+      described_class.new(
+        **base,
+        date_ranges: [{ "start_date" => "today", "end_date" => "yesterday" }]
+      )
+    end.to raise_error(AnalyticsOps::InvalidRequestError, /start_date/)
+    expect do
+      described_class.new(
+        **base,
+        date_ranges: [{ "start_date" => "1daysAgo", "end_date" => "28daysAgo" }]
+      )
+    end.to raise_error(AnalyticsOps::InvalidRequestError, /start_date/)
+  end
+
+  it "rejects reserved or duplicate date-range names" do
+    base = {
+      name: "example",
+      kind: "standard",
+      dimensions: [],
+      metrics: ["activeUsers"]
+    }
+
+    expect do
+      described_class.new(
+        **base,
+        date_ranges: [{ "start_date" => "7daysAgo", "end_date" => "yesterday", "name" => "date_range_1" }]
+      )
+    end.to raise_error(AnalyticsOps::InvalidRequestError, /name/i)
+    expect do
+      described_class.new(
+        **base,
+        date_ranges: [
+          { "start_date" => "28daysAgo", "end_date" => "15daysAgo", "name" => "comparison" },
+          { "start_date" => "14daysAgo", "end_date" => "yesterday", "name" => "comparison" }
+        ]
+      )
+    end.to raise_error(AnalyticsOps::InvalidRequestError, /unique/i)
+  end
+
+  it "accepts only finite int64 or double numeric filter values" do
+    attributes = {
+      name: "example",
+      kind: "standard",
+      dimensions: [],
+      metrics: ["activeUsers"],
+      date_ranges: [{ "start_date" => "7daysAgo", "end_date" => "yesterday" }]
+    }
+
+    [Rational(1, 2), (2**63), Float::INFINITY].each do |value|
+      expect do
+        described_class.new(
+          **attributes,
+          metric_filter: { "field" => "activeUsers", "operation" => "greater_than", "value" => value }
+        )
+      end.to raise_error(AnalyticsOps::InvalidRequestError, /finite.*Integer.*Float/i)
+    end
+  end
+
+  it "rejects duplicate ordering clauses" do
+    expect do
+      described_class.new(
+        name: "example",
+        kind: "standard",
+        dimensions: ["date"],
+        metrics: ["activeUsers"],
+        date_ranges: [{ "start_date" => "7daysAgo", "end_date" => "yesterday" }],
+        order_bys: [
+          { "metric" => "activeUsers", "desc" => true },
+          { "metric" => "activeUsers", "desc" => false }
+        ]
+      )
+    end.to raise_error(AnalyticsOps::InvalidRequestError, /unique/i)
+  end
+
   it "rejects dates and filter values containing control characters" do
     expect do
       described_class.new(

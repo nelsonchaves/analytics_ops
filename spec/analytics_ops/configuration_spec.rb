@@ -72,6 +72,23 @@ RSpec.describe AnalyticsOps::Configuration do
       .to raise_error(AnalyticsOps::ConfigurationError, /ERB/)
   end
 
+  it "rejects duplicate YAML mapping keys before Psych can discard them" do
+    source = valid_yaml.sub(
+      'property_id: "${PROPERTY_ID}"',
+      "property_id: \"111111111\"\n    property_id: \"222222222\""
+    )
+
+    expect { load_yaml(source) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /Duplicate YAML mapping key "property_id"/)
+  end
+
+  it "bounds YAML nesting before converting the parsed tree" do
+    nested = "version: 1\nprofiles: {}\nextra:\n#{(1..60).map { |depth| "#{"  " * depth}-" }.join("\n")} value\n"
+
+    expect { load_yaml(nested) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /nesting exceeds/)
+  end
+
   it "rejects secret-shaped configuration keys" do
     source = valid_yaml.sub("property_id:", "access_token: forbidden\n    property_id:")
 
@@ -79,14 +96,69 @@ RSpec.describe AnalyticsOps::Configuration do
       .to raise_error(AnalyticsOps::ConfigurationError, /Secret-shaped key/)
   end
 
+  it "rejects credential-shaped configuration values without echoing them" do
+    source = valid_yaml.sub("Published calculator identifier", "access_token=never-print-this")
+
+    expect { load_yaml(source, environment: { "PROPERTY_ID" => "123456789" }) }
+      .to raise_error(AnalyticsOps::ConfigurationError) do |error|
+        expect(error.message).to include("Credential-shaped value")
+        expect(error.message).not_to include("never-print-this")
+      end
+  end
+
   it "rejects compound secret-shaped keys and control characters" do
     secret = valid_yaml.sub("property_id:", "service_account_file: forbidden\n    property_id:")
     control = valid_yaml.sub("Published calculator identifier", '"bad\\u0000description"')
+    delete_control = valid_yaml.sub("Calculator slug", '"Calculator\\u007fslug"')
 
     expect { load_yaml(secret, environment: { "PROPERTY_ID" => "123456789" }) }
       .to raise_error(AnalyticsOps::ConfigurationError, /Secret-shaped key/)
     expect { load_yaml(control, environment: { "PROPERTY_ID" => "123456789" }) }
       .to raise_error(AnalyticsOps::ConfigurationError, /printable/)
+    expect { load_yaml(delete_control, environment: { "PROPERTY_ID" => "123456789" }) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /display_name/)
+  end
+
+  it "validates Google-compatible custom-definition display names" do
+    source = valid_yaml.sub("Calculator slug", "Calculator-slug")
+
+    expect { load_yaml(source, environment: { "PROPERTY_ID" => "123456789" }) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /letters, numbers, spaces, or underscores/)
+  end
+
+  it "requires an explicit restricted-data classification for currency metrics" do
+    metric = [
+      "    custom_metrics:",
+      "      - parameter_name: estimate_total",
+      "        display_name: Estimate total",
+      "        scope: event",
+      "        measurement_unit: currency",
+      ""
+    ].join("\n")
+    missing = valid_yaml.sub("    custom_dimensions:", "#{metric}    custom_dimensions:")
+    classified = missing.sub(
+      "        measurement_unit: currency",
+      "        measurement_unit: currency\n        restricted_metric_types: [revenue_data]"
+    )
+
+    expect { load_yaml(missing, environment: { "PROPERTY_ID" => "123456789" }) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /requires cost_data or revenue_data/)
+    expect(load_yaml(classified, environment: { "PROPERTY_ID" => "123456789" })
+      .profile("production").custom_metrics.first.fetch("restricted_metric_types")).to eq(["revenue_data"])
+  end
+
+  it "rejects event-only retention durations for user data" do
+    source = valid_yaml.sub("user_data: 14_months", "user_data: 26_months")
+
+    expect { load_yaml(source, environment: { "PROPERTY_ID" => "123456789" }) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /user_data must be one of: 2_months, 14_months/)
+  end
+
+  it "bounds configured stream URIs before planning" do
+    source = valid_yaml.sub("https://example.com", "https://example.com/#{"a" * 2_100}")
+
+    expect { load_yaml(source, environment: { "PROPERTY_ID" => "123456789" }) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /absolute HTTP or HTTPS URI/)
   end
 
   it "allows ads-personalization exclusion only on user-scoped dimensions" do

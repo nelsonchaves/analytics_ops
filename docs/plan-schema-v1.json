@@ -53,8 +53,8 @@
             "resource_type": { "const": "data_stream" },
             "resource_identity": { "pattern": "^stream:[0-9]{1,50}$" },
             "operation": { "const": "update" },
-            "before": { "$ref": "#/$defs/dataStream" },
-            "after": { "$ref": "#/$defs/dataStream" }
+            "before": { "$ref": "#/$defs/dataStreamBefore" },
+            "after": { "$ref": "#/$defs/dataStreamAfter" }
           }
         },
         {
@@ -124,17 +124,38 @@
         "message": { "type": "string", "pattern": "^[^\\u0000-\\u001F\\u007F]{1,1000}$" }
       }
     },
-    "dataStream": {
+    "dataStreamBefore": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "name", "display_name", "type", "default_uri", "measurement_id"],
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "name": { "$ref": "#/$defs/resourceName" },
-        "display_name": { "type": "string", "maxLength": 100 },
-        "type": { "enum": ["web", "android", "ios", "unspecified"] },
-        "default_uri": { "type": ["string", "null"], "format": "uri" },
-        "measurement_id": { "type": ["string", "null"], "maxLength": 64 }
+        "display_name": { "type": "string", "maxLength": 100, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" },
+        "type": { "const": "web" },
+        "default_uri": {
+          "type": ["string", "null"], "format": "uri", "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "measurement_id": {
+          "type": ["string", "null"], "maxLength": 64, "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        }
+      }
+    },
+    "dataStreamAfter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "display_name", "type", "default_uri", "measurement_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/resourceName" },
+        "display_name": { "type": "string", "maxLength": 100, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" },
+        "type": { "const": "web" },
+        "default_uri": {
+          "type": "string", "format": "uri", "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "measurement_id": {
+          "type": ["string", "null"], "maxLength": 64, "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        }
       }
     },
     "retention": {
@@ -144,12 +165,15 @@
       "properties": {
         "name": { "$ref": "#/$defs/resourceName" },
         "event_data": { "$ref": "#/$defs/retentionValue" },
-        "user_data": { "$ref": "#/$defs/retentionValue" },
+        "user_data": { "$ref": "#/$defs/userRetentionValue" },
         "reset_on_new_activity": { "type": "boolean" }
       }
     },
     "retentionValue": {
       "enum": ["2_months", "14_months", "26_months", "38_months", "50_months"]
+    },
+    "userRetentionValue": {
+      "enum": ["2_months", "14_months"]
     },
     "keyEvent": {
       "type": "object",
@@ -166,11 +190,28 @@
       "required": ["parameter_name", "display_name", "description", "scope", "disallow_ads_personalization"],
       "properties": {
         "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
-        "display_name": { "type": "string", "minLength": 1, "maxLength": 82 },
-        "description": { "type": "string", "maxLength": 150 },
+        "display_name": {
+          "type": "string", "minLength": 1, "maxLength": 82,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "description": { "type": "string", "maxLength": 150, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" },
         "scope": { "enum": ["event", "user", "item"] },
         "disallow_ads_personalization": { "type": "boolean" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "scope": { "const": "user" } } },
+          "then": {
+            "properties": {
+              "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,23}$" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "scope": { "enum": ["event", "item"] } } },
+          "then": { "properties": { "disallow_ads_personalization": { "const": false } } }
+        }
+      ]
     },
     "customDimensionUpdate": {
       "type": "object",
@@ -179,46 +220,96 @@
       "properties": {
         "name": { "$ref": "#/$defs/resourceName" },
         "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
-        "display_name": { "type": "string", "minLength": 1, "maxLength": 82 },
-        "description": { "type": "string", "maxLength": 150 },
+        "display_name": {
+          "type": "string", "minLength": 1, "maxLength": 82,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "description": { "type": "string", "maxLength": 150, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" },
         "scope": { "enum": ["event", "user", "item"] },
         "disallow_ads_personalization": { "type": "boolean" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "scope": { "const": "user" } } },
+          "then": {
+            "properties": {
+              "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,23}$" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "scope": { "enum": ["event", "item"] } } },
+          "then": { "properties": { "disallow_ads_personalization": { "const": false } } }
+        }
+      ]
     },
     "customMetricCreate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["parameter_name", "display_name", "description", "scope", "measurement_unit"],
+      "required": [
+        "parameter_name", "display_name", "description", "scope", "measurement_unit", "restricted_metric_types"
+      ],
       "properties": {
         "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
-        "display_name": { "type": "string", "minLength": 1, "maxLength": 82 },
-        "description": { "type": "string", "maxLength": 150 },
+        "display_name": {
+          "type": "string", "minLength": 1, "maxLength": 82,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "description": { "type": "string", "maxLength": 150, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" },
         "scope": { "const": "event" },
         "measurement_unit": {
           "enum": [
             "standard", "currency", "feet", "meters", "kilometers", "miles",
             "milliseconds", "seconds", "minutes", "hours"
           ]
+        },
+        "restricted_metric_types": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["cost_data", "revenue_data"] }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "measurement_unit": { "const": "currency" } } },
+          "then": { "properties": { "restricted_metric_types": { "minItems": 1 } } },
+          "else": { "properties": { "restricted_metric_types": { "maxItems": 0 } } }
+        }
+      ]
     },
     "customMetricUpdate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "parameter_name", "display_name", "description", "scope", "measurement_unit"],
+      "required": [
+        "name", "parameter_name", "display_name", "description", "scope", "measurement_unit",
+        "restricted_metric_types"
+      ],
       "properties": {
         "name": { "$ref": "#/$defs/resourceName" },
         "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
-        "display_name": { "type": "string", "minLength": 1, "maxLength": 82 },
-        "description": { "type": "string", "maxLength": 150 },
+        "display_name": {
+          "type": "string", "minLength": 1, "maxLength": 82,
+          "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "description": { "type": "string", "maxLength": 150, "pattern": "^[^\\u0000-\\u001F\\u007F]*$" },
         "scope": { "const": "event" },
         "measurement_unit": {
           "enum": [
             "standard", "currency", "feet", "meters", "kilometers", "miles",
             "milliseconds", "seconds", "minutes", "hours"
           ]
+        },
+        "restricted_metric_types": {
+          "type": "array", "uniqueItems": true,
+          "items": { "enum": ["cost_data", "revenue_data"] }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "measurement_unit": { "const": "currency" } } },
+          "then": { "properties": { "restricted_metric_types": { "minItems": 1 } } },
+          "else": { "properties": { "restricted_metric_types": { "maxItems": 0 } } }
+        }
+      ]
     }
   }
 }

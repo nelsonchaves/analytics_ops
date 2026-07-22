@@ -23,6 +23,7 @@ module AnalyticsOps
       def initialize(arguments)
         @arguments = arguments
         @values = DEFAULTS.dup
+        @explicit_format = nil
       end
 
       def parse!(command)
@@ -51,10 +52,19 @@ module AnalyticsOps
 
       def add_format_options(options)
         options.on("-f", "--format FORMAT", CLI::FORMATS, CLI::FORMATS.join(", ")) do |format|
-          @values[:format] = format
+          select_format(format)
         end
-        options.on("--json", "Use JSON output") { @values[:format] = "json" }
-        options.on("--csv", "Use CSV report output") { @values[:format] = "csv" }
+        options.on("--json", "Use JSON output") { select_format("json") }
+        options.on("--csv", "Use CSV report output") { select_format("csv") }
+      end
+
+      def select_format(format)
+        if @explicit_format && @explicit_format != format
+          raise OptionParser::InvalidArgument, "choose exactly one output format"
+        end
+
+        @explicit_format = format
+        @values[:format] = format
       end
 
       def add_setup_options(options)
@@ -75,7 +85,9 @@ module AnalyticsOps
           @values[:transport] = transport.to_sym
         end
         options.on("--timeout SECONDS", Float, "Google API timeout") do |seconds|
-          raise OptionParser::InvalidArgument, "timeout must be positive" unless seconds.positive?
+          unless seconds.finite? && seconds.positive?
+            raise OptionParser::InvalidArgument, "timeout must be finite and positive"
+          end
 
           @values[:timeout] = seconds
         end

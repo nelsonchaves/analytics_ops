@@ -4,7 +4,9 @@ module AnalyticsOps
   module Reports
     # Small built-in catalog focused on acquisition and calculator outcomes.
     module Catalog
-      STANDARD_DATE_RANGE = [{ "start_date" => "28daysAgo", "end_date" => "yesterday" }].freeze
+      STANDARD_DATE_RANGE = Canonical.immutable(
+        [{ "start_date" => "28daysAgo", "end_date" => "yesterday" }]
+      )
       ALIASES = {
         "traffic" => "traffic_acquisition",
         "landing-pages" => "landing_pages"
@@ -100,7 +102,7 @@ module AnalyticsOps
       end
 
       def names
-        DEFINITIONS.keys.sort
+        DEFINITIONS.keys.sort.freeze
       end
 
       def aliases

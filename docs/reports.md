@@ -39,8 +39,8 @@ analytics-ops realtime
 ```
 
 CSV is accepted only for `report` and `realtime`. The CSV renderer protects
-cells that start with `=`, `+`, `-`, or `@` from spreadsheet formula
-execution.
+headers and cells whose first meaningful character is `=`, `+`, `-`, or `@`,
+including formula text hidden behind whitespace or control characters.
 
 ## Overview
 
@@ -106,6 +106,12 @@ Definitions reject unknown fields, malformed names, duplicate dimensions or
 metrics, invalid date order, filters that reference unselected fields,
 non-finite numeric filters, invalid ordering, and unbounded limits. Realtime
 definitions cannot use date ranges or offsets.
+
+Dates use only `YYYY-MM-DD`, `NdaysAgo`, `yesterday`, or `today`. Absolute and
+relative ranges are checked for reversed endpoints. A request may contain up
+to four uniquely named ranges; comparison responses include Google's
+automatic `dateRange` dimension. Numeric filters accept only finite doubles or
+signed 64-bit integers.
 
 ## Result shape
 

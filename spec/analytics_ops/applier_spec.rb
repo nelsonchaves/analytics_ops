@@ -17,6 +17,8 @@ RSpec.describe AnalyticsOps::Applier do
   it "requires explicit confirmation before it even refreshes remote state" do
     expect { described_class.new(admin:).call(plan) }
       .to raise_error(AnalyticsOps::ConfirmationRequiredError)
+    expect { described_class.new(admin:).call(plan, confirm: "yes") }
+      .to raise_error(AnalyticsOps::ConfirmationRequiredError)
     expect(admin).not_to have_received(:snapshot)
   end
 
