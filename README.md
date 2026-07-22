@@ -1,124 +1,194 @@
 # Analytics Ops
 
-**Manage Google Analytics 4 configuration and reports from Ruby—safely and
-repeatably.**
+**Google Analytics 4 configuration as code and reporting for Ruby and Rails.**
 
-Analytics Ops is an open-source Ruby gem and command-line tool. It is being
-built to help teams review GA4 settings, find configuration drift, plan safe
-changes, and run reports without repeating work in the Google Analytics UI.
+Analytics Ops gives you a review-first way to inspect GA4, detect drift, run
+useful reports, and apply a small set of safe configuration changes. The core
+is plain Ruby; Rails support is optional.
 
-> [!IMPORTANT]
-> This project is in early development and is not yet available on RubyGems.
-> The command line currently supports `help` and `version`; the GA4 commands
-> described in the roadmap are not implemented yet.
+> Analytics Ops is pre-release software. Install it from a reviewed commit
+> until version 0.1.0 is published to RubyGems.
 
-## Quick start
+## Five-minute read-only start
 
-You need [Ruby](https://www.ruby-lang.org/) 3.2 or newer, Bundler, and Git.
+You need Ruby 3.2 or newer, a GA4 property you can read, and the
+[Google Cloud CLI](https://cloud.google.com/sdk/docs/install).
 
-```bash
-git clone https://github.com/nelsonchaves/analytics_ops.git
-cd analytics_ops
-bin/setup
-bin/analytics-ops help
+1. Install from a reviewed commit:
+
+   ```ruby
+   # Gemfile
+   gem "analytics_ops",
+     github: "nelsonchaves/analytics_ops",
+     ref: "REPLACE_WITH_A_REVIEWED_COMMIT_SHA",
+     group: :development
+   ```
+
+   ```bash
+   bundle install
+   ```
+
+2. Enable the Google Analytics Admin API and Data API in your own Google Cloud
+   project, then create local Application Default Credentials:
+
+   ```bash
+   gcloud auth application-default login \
+     --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/analytics.readonly"
+   ```
+
+3. Create `config/analytics_ops.yml`:
+
+   ```yaml
+   version: 1
+
+   profiles:
+     production:
+       property_id: "123456789"
+   ```
+
+4. Check access without changing anything:
+
+   ```bash
+   bundle exec analytics-ops doctor
+   bundle exec analytics-ops discover
+   bundle exec analytics-ops audit
+   bundle exec analytics-ops report traffic_acquisition
+   ```
+
+Every command above is read-only. `audit` exits with status 2 when it finds
+drift, which makes it useful in CI.
+
+## The safe change workflow
+
+```text
+configuration → audit → saved plan → review → apply → verify
 ```
 
-That is all you need to install the dependencies and open the CLI help.
+```bash
+# Read-only: save a deterministic plan with mode 0600
+bundle exec analytics-ops plan --output tmp/ga4-plan.json
 
-## Useful commands
+# Review the JSON before doing anything
+less tmp/ga4-plan.json
 
-Run these commands from the project folder:
+# Mutating: prints the exact saved operations and asks you to type yes
+bundle exec analytics-ops apply tmp/ga4-plan.json
 
-| Command | What it does |
+# Read-only: confirm managed settings now match
+bundle exec analytics-ops verify
+```
+
+`apply` refreshes the remote snapshot, rejects stale plans, and executes only
+the operations in the saved file. Ordinary plans never delete or archive
+anything. If one operation fails, execution stops and reports what succeeded,
+what failed, and what remains.
+
+## Common commands
+
+| Command | Purpose | Remote writes? |
+| --- | --- | --- |
+| `analytics-ops doctor` | Check configuration, credentials, APIs, property access, clients, and clock | No |
+| `analytics-ops discover` | List accessible accounts, properties, and streams | No |
+| `analytics-ops snapshot` | Print normalized managed remote state | No |
+| `analytics-ops audit` | Show drift without writing a plan file | No |
+| `analytics-ops plan --output FILE` | Review and save deterministic changes | No |
+| `analytics-ops apply FILE` | Apply one reviewed, non-stale plan | **Yes** |
+| `analytics-ops verify` | Check convergence | No |
+| `analytics-ops report NAME` | Run a built-in standard report | No |
+| `analytics-ops realtime` | Run the realtime-events report | No |
+| `analytics-ops schema --format json` | Print the configuration schema | No |
+
+Use `--format json` for automation. CSV is available only for reports:
+
+```bash
+bundle exec analytics-ops report landing_pages --format csv
+```
+
+See [Commands](docs/commands.md) for every option and exit status.
+
+## IDs: the quick distinction
+
+Use fake values like these in examples and tests:
+
+| Value | Example | Where it belongs |
+| --- | --- | --- |
+| Account ID | `100000001` | Discovery output only |
+| Property ID | `123456789` | `property_id` in configuration and API requests |
+| Stream ID | `987654321` | `stream_id` in configuration |
+| Measurement ID | `G-EXAMPLE1` | Browser tagging; never use it as a stream ID |
+| OAuth client | A Cloud project client ID/secret | Owned by your application, never this YAML |
+| Service-account identity | `ga-reader@example-project.iam.gserviceaccount.com` | Granted GA access; its key is never this YAML |
+
+## Ruby API
+
+```ruby
+workspace = AnalyticsOps::Workspace.load(
+  "config/analytics_ops.yml",
+  profile: "production"
+)
+
+plan = workspace.plan
+plan.write("tmp/ga4-plan.json")
+
+report = workspace.report("calculator_completions")
+report.rows.each { |row| puts row.fetch("eventCount") }
+```
+
+Loading the gem, loading YAML, and booting Rails do not contact Google.
+Network calls happen only when a workspace operation is invoked.
+
+## Rails
+
+```ruby
+# Gemfile
+gem "analytics_ops", require: "analytics_ops/rails", group: :development
+```
+
+```bash
+bin/rails generate analytics_ops:install
+bin/rake analytics:doctor
+bin/rake 'analytics:report[traffic_acquisition]'
+```
+
+The integration is a Railtie, not an Engine. It adds a generator and operator
+Rake tasks—no models, migrations, routes, controllers, views, JavaScript, or
+boot-time network calls. See [Rails integration](docs/rails.md).
+
+## What Analytics Ops does not do
+
+- It does not inject browser analytics or manage consent banners.
+- It does not store credentials, tokens, report rows, or local state.
+- It does not delete accounts, properties, streams, or unmanaged resources.
+- It does not claim to manage settings that Google exposes only in the UI.
+- Experimental declarations are findings only in version 0.1.0; they are not
+  silently applied through Alpha APIs.
+
+## Documentation
+
+| Guide | Topic |
 | --- | --- |
-| `bin/setup` | Install project dependencies |
-| `bin/analytics-ops help` | Show the available CLI commands |
-| `bin/analytics-ops version` | Show the current version |
-| `bin/check` | Run all tests and style checks |
-| `bundle exec rake spec` | Run only the tests |
-| `bundle exec rake rubocop` | Run only the style checks |
-| `bin/console` | Open a Ruby console with Analytics Ops loaded |
-| `bundle exec rake build` | Build the gem locally |
+| [Authentication](docs/authentication.md) | ADC, scopes, service accounts, and safe automation |
+| [Configuration](docs/configuration.md) | Complete strict YAML contract |
+| [Commands](docs/commands.md) | CLI syntax, formats, and exit statuses |
+| [Reports](docs/reports.md) | Built-in recipes and GA reporting limitations |
+| [Rails](docs/rails.md) | Generator and Rake tasks |
+| [Safety](docs/safety.md) | Plans, stale-state protection, rollback, and credentials |
+| [Plan format](docs/plan-format.md) | Version-1 JSON contract |
+| [API support](docs/api-support-matrix.md) | Exactly what is managed, manual, or unsupported |
+| [Client compatibility](docs/google-client-compatibility.md) | Tested official Google gem versions |
+| [Troubleshooting](docs/troubleshooting.md) | Common failures and fixes |
+| [Architecture](docs/architecture.md) | Boundaries and data flow |
 
-For most development work, you only need:
+For development, run:
 
 ```bash
 bin/setup
 bin/check
 ```
 
-## How it is designed to work
+Security issues belong in private vulnerability reporting; see
+[SECURITY.md](SECURITY.md). Contributions follow [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Analytics Ops follows a review-first workflow:
-
-```text
-desired configuration → audit → plan → review → apply → verify
-```
-
-- Audits, plans, verification, and reports are read-only.
-- Changes require a saved plan and explicit confirmation.
-- Credentials never belong in configuration or plan files.
-- Requiring the gem or starting Rails never makes a network request.
-
-The planned CLI will include commands for checking access, discovering GA4
-properties, auditing settings, reviewing plans, applying approved changes,
-verifying results, and running reports. See the [product plan](docs/product-plan.txt)
-for the full roadmap.
-
-## Use it in another Ruby project
-
-Until the first RubyGems release, pin the gem to a commit you have reviewed:
-
-```ruby
-# Gemfile
-gem "analytics_ops",
-  github: "nelsonchaves/analytics_ops",
-  ref: "REPLACE_WITH_A_COMMIT_SHA",
-  group: :development
-```
-
-Then install it:
-
-```bash
-bundle install
-```
-
-Do not use an unpinned branch in production or release automation.
-
-## Authentication
-
-The current `help` and `version` commands do not need Google credentials.
-Future GA4 commands will use Google Application Default Credentials, including
-local user OAuth, service accounts, and Workload Identity Federation.
-
-Analytics Ops does not store credentials. Never commit service-account JSON,
-OAuth secrets, access tokens, or refresh tokens. See the
-[authentication guide](docs/authentication.md) for details.
-
-## Documentation
-
-| Guide | Use it to learn about |
-| --- | --- |
-| [Configuration](docs/configuration.md) | The planned YAML configuration format |
-| [Authentication](docs/authentication.md) | Google credentials and access |
-| [Architecture](docs/architecture.md) | Project structure and safety boundaries |
-| [Plan format](docs/plan-format.md) | How changes will be reviewed and protected |
-| [API support matrix](docs/api-support-matrix.md) | Stable and experimental Google APIs |
-| [Product plan](docs/product-plan.txt) | Roadmap, scope, and release gates |
-| [Contributing](CONTRIBUTING.md) | Development and pull-request guidelines |
-
-## Security
-
-Do not open a public issue for a vulnerability or an exposed credential.
-Follow the private reporting steps in [SECURITY.md](SECURITY.md).
-
-## License and trademark
-
-Analytics Ops is available under the [MIT License](LICENSE.txt).
-
-This independent project is not affiliated with, sponsored by, or endorsed by
-Google LLC. Google Analytics is a trademark of Google LLC and is named only to
-describe API compatibility.
-
-Everyone participating in the project must follow the
-[code of conduct](CODE_OF_CONDUCT.md).
+Analytics Ops is MIT licensed and is not affiliated with, sponsored by, or
+endorsed by Google LLC. Google Analytics is a trademark of Google LLC and is
+named only to describe API compatibility.

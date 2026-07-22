@@ -1,54 +1,67 @@
 # Contributing
 
-Thank you for helping make Analytics Ops safer and easier to use.
-
-## Before opening a pull request
-
-1. Open an issue for a new public capability or configuration change.
-2. Keep the plain-Ruby core independent of Rails and Active Support.
-3. Do not add a second HTTP or authentication implementation around Google's
-   official clients.
-4. Do not introduce boot-time network access, telemetry, or credential
-   persistence.
-5. Add focused RSpec coverage for changed behavior.
-6. Update the changelog and applicable compatibility documentation.
+Thank you for helping make Analytics Ops safer and easier to operate.
 
 ## Setup
 
 ```bash
+git clone https://github.com/nelsonchaves/analytics_ops.git
+cd analytics_ops
 bin/setup
 bin/check
 ```
 
-`bin/check` runs the full test suite and the style checks. To run one check at
-a time, use `bundle exec rake spec` or `bundle exec rake rubocop`.
+Useful focused commands:
+
+```bash
+bundle exec rspec spec/analytics_ops/clients/data_spec.rb
+bundle exec rubocop
+bundle exec rbs -I sig validate
+bundle exec rake build
+```
+
+Use `RSPEC_STATUS_FILE=/tmp/analytics_ops-rspec-status` when the repository is
+mounted read-only except for source edits.
+
+## Design rules
+
+- Keep the core plain Ruby and independent of Rails and Active Support.
+- Use Google's official Ruby clients; do not add another HTTP or OAuth stack.
+- Keep generated Google objects behind adapters.
+- Do not introduce telemetry, a database, browser analytics, or boot-time
+  network access.
+- Preserve the read-only default and saved-plan confirmation boundary.
+- Do not add ordinary delete/archive operations.
+- Use immutable gem-owned public values and typed errors.
 
 ## Tests
 
-Unit and CLI integration tests use injected fake clients. They must not call a
-real Google property. Live API checks are opt-in, use a dedicated test
-property, and are never required for ordinary contributors.
+Use RSpec. Run focused specs while changing a subsystem, then run the complete
+suite before the milestone commit. Ordinary tests must use injected fakes and
+must never contact a real property.
 
-## Compatibility
+An opt-in live check may use only a dedicated disposable GA4 property. It must
+use uniquely prefixed resources and clean up only resources it created. Never
+run a live test against production.
 
-Changes must work on supported Ruby versions and preserve the gem-owned public
-contracts. Generated Google API classes must remain behind adapter boundaries.
-Alpha API capabilities require an explicit experimental opt-in and graceful
-handling when a method is unavailable.
+Changes to a Google adapter need request/response coercion tests against the
+supported official generated classes. Changes to planning need deterministic
+output, stale-state, cross-property, and idempotency coverage.
 
 ## Pull requests
 
 Keep commits focused and explain:
 
-- The user-visible problem.
-- The public contract, if any, that changes.
-- The safety and rollback behavior.
-- The verification performed.
+- the user-visible problem and public contract
+- read/write behavior and rollback implications
+- tests and compatibility checks performed
+- documentation or schema changes
 
-Never include credentials, real property exports, visitor data, or production
-plan files.
+Update `CHANGELOG.md` and the relevant support matrix when behavior changes.
+Configuration and plan incompatibilities require an explicit schema version;
+they never migrate silently.
 
-## Conduct and security
-
-Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Report vulnerabilities using
-[SECURITY.md](SECURITY.md), not a public issue.
+Never commit credentials, real property exports, visitor data, production
+plans, or production identifiers. Follow [SECURITY.md](SECURITY.md) for private
+vulnerability reports and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for project
+conduct.

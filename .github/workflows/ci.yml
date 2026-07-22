@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,13 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  ruby:
     name: Ruby ${{ matrix.ruby }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         ruby: ["3.2", "3.3", "3.4", "4.0"]
+    env:
+      BUNDLE_FROZEN: "true"
+      RSPEC_STATUS_FILE: /tmp/analytics_ops-rspec-status
 
     steps:
       - uses: actions/checkout@v6
@@ -29,11 +33,13 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
-      - run: bundle exec rake
+      - run: bundle exec rspec
 
-  package:
-    name: Package inspection
+  quality:
+    name: Style, types, schemas, and secrets
     runs-on: ubuntu-latest
+    env:
+      BUNDLE_FROZEN: "true"
 
     steps:
       - uses: actions/checkout@v6
@@ -43,12 +49,71 @@ jobs:
         with:
           ruby-version: "4.0"
           bundler-cache: true
-      - run: gem build analytics_ops.gemspec --output analytics_ops.gem
-      - run: gem specification analytics_ops.gem
+      - run: bundle exec rubocop --format github
+      - run: bundle exec rake rbs schemas docs security:scan
+
+  rails:
+    name: Rails ${{ matrix.rails }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rails: ["~> 7.2.0", "~> 8.0.0", "~> 8.1.0"]
+    env:
+      BUNDLE_FROZEN: "true"
+      RSPEC_STATUS_FILE: /tmp/analytics_ops-rails-rspec-status
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - run: gem install rails --version "${{ matrix.rails }}" --no-document
+      - name: Run optional Rails integration specs outside the core bundle
+        run: ruby -Ilib "$(ruby -e 'puts Gem.bin_path("rspec-core", "rspec")')" spec/analytics_ops/rails_spec.rb
+
+  google-clients:
+    name: Current allowed Google clients
+    runs-on: ubuntu-latest
+    env:
+      RSPEC_STATUS_FILE: /tmp/analytics_ops-google-rspec-status
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - run: bundle update google-analytics-admin google-analytics-admin-v1alpha google-analytics-data google-analytics-data-v1beta
+      - run: bundle exec rspec spec/analytics_ops/clients
+
+  package:
+    name: Package inspection
+    runs-on: ubuntu-latest
+    env:
+      BUNDLE_FROZEN: "true"
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - run: bundle exec rake release:inspect
+      - run: gem specification pkg/analytics_ops-0.1.0.gem
 
   dependency-audit:
     name: Dependency audit
     runs-on: ubuntu-latest
+    env:
+      BUNDLE_FROZEN: "true"
 
     steps:
       - uses: actions/checkout@v6

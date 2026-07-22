@@ -1,74 +1,89 @@
 # Architecture
 
-Analytics Ops is a plain-Ruby library and CLI with optional Rails integration.
-It translates Google-generated API objects at a narrow boundary and keeps its
-planning domain independent from Google client implementation details.
+Analytics Ops is a plain-Ruby library and CLI with optional Rails hooks. It has
+no database and keeps Google's generated classes behind two narrow adapters.
 
 ```text
-safe configuration
-  -> desired state
-  -> provider discovery
-  -> normalized remote snapshot
-  -> deterministic diff
-  -> saved plan
-  -> explicit apply
-  -> convergence verification
+strict YAML
+  → immutable desired state
+  → Admin API snapshot
+  → deterministic planner
+  → versioned saved plan
+  → explicit guarded apply
+  → convergence verification
+
+immutable report definition
+  → Data API adapter
+  → immutable normalized result
 ```
 
-## Boundaries
+## Core objects
 
-The intended library structure is:
+| Object | Responsibility |
+| --- | --- |
+| `Configuration` | Bounded safe YAML, environment interpolation, schema validation |
+| `DesiredState` | Immutable configuration for one profile |
+| `Resources` | Gem-owned account/property/stream/settings values |
+| `Snapshot` | Canonical managed remote state and SHA-256 fingerprint |
+| `Planner` | Pure desired-versus-snapshot comparison; no client access |
+| `Plan` | Strict deterministic JSON mutation contract |
+| `Applier` | Confirmation, fresh-snapshot check, sequential saved operations |
+| `Clients::Admin` | Official Admin request translation and response normalization |
+| `Reports::Definition` | Strict immutable Data API query |
+| `Clients::Data` | Standard/realtime request translation and result normalization |
+| `Workspace` | Public orchestration API with independently injectable clients |
+| `CLI` | Option validation, formats, stable statuses, and explicit confirmation |
+| `Railtie` | Optional generator and operator Rake tasks |
 
-```text
-AnalyticsOps
-├── Configuration
-├── Authentication
-├── Clients
-│   ├── Admin
-│   └── Data
-├── Discovery
-├── Snapshot
-├── DesiredState
-├── Capabilities
-├── Diff
-├── Plan
-├── Apply
-├── Verify
-├── Resources
-├── Reports
-├── CLI
-└── Rails
-```
+## Dependency direction
 
-Google client objects are converted into immutable gem-owned resource values.
-Diffing, planning, output, and policy code must not accept generated protobuf
-or REST response objects directly.
+Domain and planning code know nothing about protobufs, gRPC, Rails, Active
+Support, OAuth flows, or HTTP transports. Admin and Data adapters translate
+official generated values immediately into immutable Analytics Ops values.
+The adapters can be injected independently, so tests use deterministic fakes.
 
-Clients are injected. Unit and CLI integration tests use fake clients. Loading
-the gem or Rails integration must never create a client or contact Google.
+The core requires Google's wrapper gems lazily. Requiring `analytics_ops`
+defines classes only; it does not instantiate a client or discover ADC.
 
-## API maturity
+## State model
 
-Stable and Beta operations are preferred. Alpha operations are isolated by
-capability and require explicit opt-in. Missing Alpha methods return a typed
-unsupported-capability result instead of raising an implementation error.
+Google Analytics is the remote source of truth. There is no local state
+database. The configuration declares desired state and a snapshot captures the
+relevant remote state. Canonical key ordering and normalized arrays make
+snapshot fingerprints and plan bytes deterministic.
 
-The public YAML and JSON formats use gem-owned vocabulary. Google enum and
-class names remain private adapter details.
+Apply accepts an already validated plan, refreshes the snapshot, compares its
+fingerprint, then sends only the saved operations. A partial response is
+explicit reconciliation data, not a hidden retry or rollback.
 
-## State and convergence
+## Error boundary
 
-Google Analytics is the remote source of truth; no local state database is
-required. Configuration declares desired state and a snapshot captures the
-relevant remote state. Plans include a snapshot fingerprint and cannot be
-applied after relevant remote state changes.
+Expected failures become typed Analytics Ops errors:
 
-A successful apply must converge: immediately generating a second plan with
-the same inputs produces no changes.
+- configuration and invalid plan
+- authentication and authorization
+- unsupported capability and identity conflict
+- stale plan and confirmation required
+- quota, timeout, invalid request, and remote failure
+- partial apply with a structured result
 
-## Rails integration
+Messages are redacted before user-visible output. Callers do not need to parse
+Google exception text.
 
-Rails support will use a Railtie for generators and Rake tasks. It will not be
-an Engine because the gem has no routes, controllers, views, models, assets,
-or migrations. Application request handling and browser analytics remain
-outside the gem.
+An injected logger receives small JSON request events containing only the
+service method and target resource. Request bodies, authorization data, and
+report results are never logged automatically. CLI logging defaults to
+`warn`.
+
+## Rails boundary
+
+`require "analytics_ops/rails"` adds a Railtie only. It does not add an
+Engine, model, migration, route, controller, view, asset, or boot-time network
+call. Browser analytics and consent remain application concerns.
+
+## Experimental boundary
+
+Google identifies certain Admin capabilities as Alpha. Version 0.1.0 accepts
+explicit Enhanced Measurement and Google Signals declarations only so they can
+appear as experimental findings. It does not apply them. Stable/beta
+operations do not depend on an experimental public Analytics Ops contract.

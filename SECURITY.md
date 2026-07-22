@@ -3,39 +3,54 @@
 ## Supported versions
 
 Analytics Ops is pre-release. Security fixes currently target the latest
-commit on `main`. A version support table will be published before 1.0.
+commit on `main`. A published support table will replace this section before
+1.0.
 
-## Reporting a vulnerability
+## Report privately
 
-Do not open a public issue for a suspected vulnerability, exposed credential,
-or reproducible credential leak.
+Do not open a public issue for a vulnerability or exposed credential. Use
+GitHub's private vulnerability reporting for this repository.
 
-Use GitHub's private vulnerability reporting for the repository. Include:
+Include:
 
-- The affected version or commit.
-- The smallest safe reproduction.
-- The expected and observed behavior.
-- The potential impact.
-- Whether credentials or a production property were involved.
+- affected version or commit
+- smallest safe reproduction
+- expected and observed behavior
+- potential impact
+- whether a disposable or production property was involved
 
-If credentials may have been exposed, revoke or rotate them with Google before
-waiting for a project response. Never include live credentials, access tokens,
-visitor data, or production report exports in a report.
+Do not include credentials, access or refresh tokens, authorization headers,
+private keys, visitor data, report exports, or production plan files.
 
-## Security boundaries
+If credentials may be exposed, revoke or rotate them with Google immediately;
+do not wait for a project response.
 
-Analytics Ops will:
+## Security guarantees
 
-- Use Google Application Default Credentials or an explicitly injected
-  credentials object.
-- Redact authorization material from logs and errors.
-- Keep credentials out of configuration and plan files.
-- Default to read-only operations.
-- Require an explicit saved plan before mutations.
-- Avoid network access during library load or Rails boot.
-- Publish through RubyGems Trusted Publishing without a stored API key.
+Analytics Ops:
 
-Analytics Ops cannot secure a Google Cloud project, service account, GitHub
-organization, CI runner, or GA property that has been granted excessive
-permissions. Operators remain responsible for least-privilege access and
-credential rotation.
+- uses Application Default Credentials or an explicitly injected Google
+  credential object
+- refuses credential-shaped configuration and plan fields
+- redacts common authorization material from translated errors
+- performs no network I/O while requiring the gem, loading YAML, or booting
+  Rails
+- defaults to read-only commands
+- requires a strictly validated saved plan and explicit confirmation to mutate
+- rejects stale and cross-property plans
+- excludes delete/archive operations from ordinary plans
+- never logs report results automatically
+- has no telemetry, credential store, database, or browser injection
+- publishes through RubyGems Trusted Publishing without a stored API key
+
+Plan files still describe operational configuration and are created with mode
+0600. Report output may contain sensitive aggregate data and should be handled
+under the operator's data policy.
+
+## Operator responsibilities
+
+Analytics Ops cannot secure an overprivileged Cloud project, service account,
+GitHub organization, CI runner, GA property, or exported report. Use
+least-privilege read credentials for routine work, isolate mutation
+credentials, protect release environments, and keep production mutation
+credentials out of Rails web containers.

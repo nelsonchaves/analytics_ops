@@ -1,46 +1,89 @@
-# Plan format
+# Saved plan format
 
-`analytics-ops plan` will produce a readable summary and a versioned JSON plan.
-The JSON plan is the only input accepted by `apply`.
+`analytics-ops plan --output FILE` writes deterministic version-1 JSON. This
+file is the only mutation input accepted by `apply`.
 
-Conceptual structure:
+Example with fake identifiers:
 
 ```json
 {
+  "changes": [
+    {
+      "after": {
+        "description": "Published calculator identifier",
+        "disallow_ads_personalization": false,
+        "display_name": "Calculator slug",
+        "parameter_name": "calculator_slug",
+        "scope": "event"
+      },
+      "api_maturity": "beta",
+      "before": null,
+      "operation": "create",
+      "resource_identity": "event:calculator_slug",
+      "resource_type": "custom_dimension",
+      "reversible": true,
+      "rollback": "Archive the newly created custom dimension"
+    }
+  ],
+  "findings": [],
   "format_version": 1,
   "profile": "production",
   "property_id": "123456789",
-  "created_at": "2026-07-22T00:00:00Z",
-  "snapshot_fingerprint": "sha256:...",
-  "changes": [
-    {
-      "resource_type": "custom_dimension",
-      "resource_identity": "event:calculator_slug",
-      "operation": "create",
-      "api_maturity": "beta",
-      "before": null,
-      "after": {
-        "parameter_name": "calculator_slug",
-        "display_name": "Calculator slug",
-        "scope": "event"
-      },
-      "reversible": true
-    }
-  ]
+  "snapshot_fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 }
 ```
 
-## Safety rules
+Plans contain no timestamp. The same desired state and normalized snapshot
+produce the same bytes.
 
-- Plan generation is read-only.
-- A plan contains no credentials or report data.
-- Changes are sorted deterministically.
-- Apply rejects unknown format versions.
-- Apply rejects a stale snapshot fingerprint.
-- Apply executes only operations present in the saved plan.
-- Ordinary plans exclude destructive operations.
-- Partial failure produces a reconciliation result and nonzero exit status.
+## Top-level fields
 
-The concrete JSON Schema will be committed before mutation support is enabled.
-Changing the plan format requires an explicit format version and migration
-documentation.
+| Field | Meaning |
+| --- | --- |
+| `format_version` | Exact plan contract version; currently 1 |
+| `profile` | Configuration profile that produced the plan |
+| `property_id` | Numeric GA4 property ID encoded as a string |
+| `snapshot_fingerprint` | SHA-256 of relevant normalized remote state |
+| `changes` | Sorted supported create/update operations |
+| `findings` | Sorted drift, manual, warning, or experimental observations |
+
+Every change records resource type, stable identity, operation, API maturity,
+before/after payloads, reversibility, and manual rollback guidance.
+
+## Supported version-1 changes
+
+| Resource | Create | Update | Delete/archive |
+| --- | :---: | :---: | :---: |
+| Existing web data-stream default URI | No | Yes | No |
+| Data retention | No | Yes | No |
+| Key event | Yes | No | No |
+| Custom dimension | Yes | Mutable metadata only | No |
+| Custom metric | Yes | Mutable metadata only | No |
+
+Resource names in update payloads must belong to the plan's property. Immutable
+identity fields cannot change between `before` and `after`.
+
+## Findings are not operations
+
+A finding may identify inaccessible resources, immutable conflicts, manual UI
+checks, or explicitly declared experimental capabilities. Apply ignores
+findings; it never converts them into mutations.
+
+## Storage and review
+
+Plan writes are atomic and mode 0600. Treat the file as operationally
+sensitive even though credentials and report rows are forbidden:
+
+```bash
+analytics-ops plan --output tmp/ga4-plan.json
+less tmp/ga4-plan.json
+analytics-ops apply tmp/ga4-plan.json
+```
+
+Do not hand-edit a fingerprint or payload. Generate a new plan after any remote
+or desired-state change. Partial apply also requires reconciliation and a new
+plan.
+
+The complete machine-readable contract is
+[plan-schema-v1.json](plan-schema-v1.json). Runtime validation additionally
+enforces cross-field identity, immutable-field, and cross-property rules.

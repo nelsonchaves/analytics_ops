@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Verify and publish
+    runs-on: ubuntu-latest
+    environment: release
+    env:
+      BUNDLE_FROZEN: "true"
+      RSPEC_STATUS_FILE: /tmp/analytics_ops-release-rspec-status
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+
+      - name: Require an annotated version tag from main
+        shell: bash
+        run: |
+          test "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" = "tag"
+          version="$(ruby -Ilib -ranalytics_ops/version -e 'print AnalyticsOps::VERSION')"
+          test "${GITHUB_REF_NAME}" = "v${version}"
+          grep -F "## [${version}]" CHANGELOG.md
+          commit="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          git fetch origin main
+          git merge-base --is-ancestor "${commit}" origin/main
+
+      - name: Run all release checks
+        run: bundle exec rake
+
+      - name: Inspect release package
+        run: bundle exec rake release:inspect
+
+      - name: Publish with RubyGems Trusted Publishing
+        uses: rubygems/release-gem@v1

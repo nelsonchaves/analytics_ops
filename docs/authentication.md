@@ -1,38 +1,86 @@
 # Authentication
 
-Analytics Ops uses Google Application Default Credentials through Google's
-official Ruby clients. It does not implement or store an OAuth session.
+Analytics Ops uses [Google Application Default Credentials (ADC)](https://cloud.google.com/docs/authentication/application-default-credentials)
+through Google's official Ruby clients. It does not implement OAuth, store
+tokens, or accept credential fields in configuration.
 
-## Local administration
+## Local read-only use
 
-For interactive local use, authenticate through the Google Cloud CLI with the
-smallest required OAuth scope:
+Use an identity that has read access to the target GA4 property:
 
-- `analytics.readonly` for doctor, discovery, audit, plan, verify, and reports.
-- `analytics.edit` only when applying administrative changes.
+```bash
+gcloud auth application-default login \
+  --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/analytics.readonly"
+```
 
-The Google Cloud project must have the applicable Analytics API enabled, and
-the authenticated identity must also have access to the target GA property.
-Cloud IAM access alone does not grant GA property access.
+Enable both APIs in the Google Cloud project used for authentication:
+
+- Google Analytics Admin API
+- Google Analytics Data API
+
+Then run:
+
+```bash
+analytics-ops doctor
+```
+
+`doctor` makes small read-only calls to both APIs. It confirms that Google
+accepts the credentials and that the property can be read. The installed
+clients do not expose a reliable contract for inspecting the scopes inside an
+already-issued token, so `doctor` reports scope inspection as `unknown`
+instead of guessing.
+
+## Applying changes
+
+Read-only credentials cannot apply a plan. Use a separately protected identity
+with the `analytics.edit` scope and sufficient access to the GA4 property:
+
+```bash
+gcloud auth application-default login \
+  --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/analytics.edit"
+```
+
+Keep mutation credentials out of a deployed Rails web container. Apply plans
+from an administrator workstation or a protected release job.
 
 ## Automation
 
-Prefer a dedicated service account or Workload Identity Federation. Scheduled
-drift audits need only read access. Mutation credentials belong in a separately
-protected release workflow, not an application web container.
+Prefer one of these:
 
-## Rules
+- A dedicated service account with only the GA properties and roles it needs.
+- Workload Identity Federation, which avoids a long-lived JSON key.
+- An explicitly injected Google credentials object when using the Ruby API.
 
+Cloud IAM permission alone does not grant access to a GA4 property. Add the
+service-account identity—such as
+`ga-reader@example-project.iam.gserviceaccount.com`—to the property with the
+appropriate Google Analytics role.
+
+## Values that are easy to confuse
+
+| Value | Example | Meaning |
+| --- | --- | --- |
+| Property ID | `123456789` | Numeric GA4 property identifier used by Admin and Data APIs |
+| Stream ID | `987654321` | Numeric data-stream resource identifier |
+| Measurement ID | `G-EXAMPLE1` | Web tagging identifier; not accepted as `property_id` or `stream_id` |
+| Account ID | `100000001` | Numeric Analytics account identifier shown by discovery |
+| OAuth client | Client ID and secret in your Cloud project | Starts a user OAuth flow; never put it in Analytics Ops YAML |
+| Service account | An IAM email identity | Receives GA property access; a JSON private key is credential material |
+
+## Credential rules
+
+- Never put credentials, paths to credentials, access tokens, refresh tokens,
+  private keys, API keys, or OAuth secrets in `analytics_ops.yml`.
+- Never put credentials in a saved plan.
 - Never commit service-account JSON.
-- Never place credentials in `config/analytics_ops.yml`.
-- Never place credentials in a plan file.
-- Never print authorization headers, tokens, private keys, or refresh tokens.
-- Rotate credentials immediately when exposure is suspected.
-- Do not share one public OAuth client from the gem.
+- Never paste credentials into an issue, fixture, log, or report.
+- Revoke or rotate credentials immediately after suspected exposure.
+- Do not create a shared public OAuth client for this gem.
 
-The future `analytics-ops doctor` command will verify credential discovery,
-OAuth scopes, enabled APIs, property access, client compatibility, and local
-clock sanity without changing remote state.
+Analytics Ops redacts common credential patterns from translated errors, but
+redaction is a final safety net—not a safe way to handle secrets.
 
-Official quickstart:
-https://developers.google.com/analytics/devguides/config/admin/v1/quickstart
+Official Google setup references:
+
+- [Admin API quickstart](https://developers.google.com/analytics/devguides/config/admin/v1/quickstart)
+- [Data API quickstart](https://developers.google.com/analytics/devguides/reporting/data/v1/quickstart-client-libraries)
