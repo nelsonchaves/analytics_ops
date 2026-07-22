@@ -39,12 +39,15 @@ module AnalyticsOps
         @logger = logger
       end
 
-      def discover
+      def discover(include_streams: true)
+        raise ConfigurationError, "include_streams must be true or false" unless [true, false].include?(include_streams)
+
         list(:list_account_summaries, page_size: 200).map do |summary|
           properties = array_field(summary, :property_summaries).map do |property|
             normalized = normalize_property(property, can_edit: field(property, :can_edit))
-            streams = list_streams(normalized.id).map(&:to_h)
-            normalized.to_h.merge("streams" => streams)
+            next normalized.to_h unless include_streams
+
+            normalized.to_h.merge("streams" => list_streams(normalized.id).map(&:to_h))
           end
           properties.sort_by! { |property| property.fetch("id") }
 

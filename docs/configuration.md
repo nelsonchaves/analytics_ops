@@ -3,6 +3,17 @@
 Analytics Ops reads strict, versioned YAML. The file describes desired GA4
 state; it never contains credentials.
 
+For the normal first run, let setup create the file after you choose a
+property:
+
+```bash
+analytics-ops setup
+```
+
+Setup writes only a quoted property ID under the `production` profile. It
+will reuse a matching file but will not overwrite an existing profile that
+targets another property.
+
 ## Smallest valid file
 
 ```yaml
@@ -44,7 +55,7 @@ profiles:
         default_uri: "https://www.example.test"
 
         # Accepted only as an explicit experimental declaration.
-        # Version 0.1.0 reports a finding and does not apply this setting.
+        # Version 0.2.0 reports a finding and does not apply this setting.
         enhanced_measurement:
           enabled: true
           experimental: true
@@ -81,7 +92,7 @@ profiles:
       - email_redaction_enabled
       - consent_mode_reviewed
 
-    # Explicit declaration only in 0.1.0; never silently applied.
+    # Explicit declaration only in 0.2.0; never silently applied.
     google_signals:
       state: disabled
       experimental: true

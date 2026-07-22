@@ -26,30 +26,25 @@ module AnalyticsOps
 
   # Optional Rails hooks. Defining this class performs no Google API calls.
   class Railtie < Rails::Railtie
+    OPERATOR_TASKS = {
+      doctor: "Validate Analytics Ops configuration, credentials, and API access",
+      audit: "Audit configured Google Analytics state without changing it",
+      plan: "Write a deterministic Analytics Ops plan",
+      verify: "Verify that managed Google Analytics state converges",
+      overview: "Show the selected property's Analytics overview"
+    }.freeze
+
     generators do
       require_relative "../../generators/analytics_ops/install_generator"
     end
 
     rake_tasks do
       namespace :analytics do
-        desc "Validate Analytics Ops configuration, credentials, and API access"
-        task doctor: :environment do
-          RailsTasks.run("doctor")
-        end
-
-        desc "Audit configured Google Analytics state without changing it"
-        task audit: :environment do
-          RailsTasks.run("audit")
-        end
-
-        desc "Write a deterministic Analytics Ops plan"
-        task plan: :environment do
-          RailsTasks.run("plan")
-        end
-
-        desc "Verify that managed Google Analytics state converges"
-        task verify: :environment do
-          RailsTasks.run("verify")
+        OPERATOR_TASKS.each do |name, description|
+          desc description
+          task name => :environment do
+            RailsTasks.run(name.to_s)
+          end
         end
 
         desc "Run a built-in report: rake analytics:report[NAME]"

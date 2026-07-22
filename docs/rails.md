@@ -30,6 +30,7 @@ Add a profile matching the Rails environment you intend to operate, or set
 
 ```bash
 bin/rake analytics:doctor
+bin/rake analytics:overview
 bin/rake analytics:audit
 bin/rake analytics:plan
 bin/rake analytics:verify

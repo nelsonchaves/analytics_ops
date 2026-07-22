@@ -75,6 +75,44 @@ RSpec.describe AnalyticsOps::Clients::Data do
     expect(result.kind).to eq("realtime")
   end
 
+  it "batches the bounded overview through the pinned official request contract" do
+    definitions = AnalyticsOps::Reports::Catalog.overview
+    captured = nil
+    allow(client).to receive(:batch_run_reports) do |request|
+      captured = request
+      {
+        reports: definitions.map do |definition|
+          {
+            dimension_headers: definition.dimensions.map { |name| { name: } },
+            metric_headers: definition.metrics.map { |name| { name: } },
+            rows: [],
+            row_count: 0,
+            property_quota: { tokens_per_day: { consumed: 5, remaining: 199_995 } }
+          }
+        end
+      }
+    end
+
+    results = adapter.batch("123456789", definitions)
+    require "google/analytics/data/v1beta"
+    request = Google::Analytics::Data::V1beta::BatchRunReportsRequest.new(captured)
+
+    expect(request.property).to eq("properties/123456789")
+    expect(request.requests.length).to eq(5)
+    expect(request.requests).to all(have_attributes(property: "", return_property_quota: true))
+    expect(results.map(&:name)).to eq(definitions.map(&:name))
+    expect(results.last.metadata.dig("property_quota", "tokens_per_day", "remaining")).to eq(199_995)
+  end
+
+  it "rejects malformed or mismatched batches" do
+    expect { adapter.batch("123456789", []) }
+      .to raise_error(AnalyticsOps::InvalidRequestError, /1 to 5/)
+
+    allow(client).to receive(:batch_run_reports).and_return(reports: [])
+    expect { adapter.batch("123456789", AnalyticsOps::Reports::Catalog.overview) }
+      .to raise_error(AnalyticsOps::RemoteError, /batch size/)
+  end
+
   it "coerces request hashes through the pinned official protobuf contracts" do
     require "google/analytics/data/v1beta"
     captured = nil

@@ -56,6 +56,28 @@ RSpec.describe AnalyticsOps::Clients::Admin do
     expect(accounts.first).to be_frozen
   end
 
+  it "lists account and property summaries without fetching every stream" do
+    allow(client).to receive(:list_account_summaries).and_return(
+      [google::AccountSummary.new(
+        account: "accounts/100000001",
+        display_name: "Example account",
+        property_summaries: [
+          google::PropertySummary.new(
+            property: "properties/123456789",
+            display_name: "Example property",
+            property_type: :PROPERTY_TYPE_ORDINARY
+          )
+        ]
+      )]
+    )
+    allow(client).to receive(:list_data_streams)
+
+    accounts = adapter.discover(include_streams: false)
+
+    expect(accounts.first.properties.first).not_to have_key("streams")
+    expect(client).not_to have_received(:list_data_streams)
+  end
+
   it "proves all snapshot request shapes and normalizes generated responses" do
     requests = {}
     allow(client).to receive(:get_property) do |request|

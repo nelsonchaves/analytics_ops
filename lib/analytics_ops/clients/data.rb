@@ -55,9 +55,29 @@ module AnalyticsOps
         normalize_result(definition, response)
       end
 
+      def batch(property_id, definitions)
+        unless definitions.is_a?(Array) && definitions.length.between?(1, Reports::OverviewResult::MAX_REPORTS) &&
+               definitions.all? { |definition| definition.is_a?(Reports::Definition) && !definition.realtime? }
+          raise InvalidRequestError, "batch must contain 1 to 5 standard report definitions"
+        end
+
+        property = property_name(property_id)
+        requests = definitions.map do |definition|
+          standard_request(property_id, definition).reject { |key| key == :property }
+        end
+        response = invoke(:batch_run_reports, property:, requests:)
+        reports = array_field(response, :reports)
+        unless reports.length == definitions.length
+          raise RemoteError, "Google Data API returned a batch size that does not match the request"
+        end
+
+        definitions.zip(reports).map { |definition, report| normalize_result(definition, report) }.freeze
+      end
+
       def available?
         generated_client = translate_errors { client }
-        generated_client.respond_to?(:run_report) && generated_client.respond_to?(:run_realtime_report)
+        generated_client.respond_to?(:run_report) && generated_client.respond_to?(:run_realtime_report) &&
+          generated_client.respond_to?(:batch_run_reports)
       end
 
       def compatibility

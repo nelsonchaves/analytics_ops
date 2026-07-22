@@ -3,10 +3,13 @@
 Start with:
 
 ```bash
-analytics-ops doctor --format json
+analytics-ops properties
+analytics-ops setup
+analytics-ops doctor --json
 ```
 
-The command is read-only and checks both Google APIs.
+`properties` works without configuration. Setup verifies both APIs and creates
+the minimal file; doctor performs the complete configured-property check.
 
 ## Configuration error
 
@@ -27,9 +30,12 @@ secret-shaped fields are intentionally rejected.
 
 ## Authentication failure (exit 66)
 
-Create ADC again and ensure both APIs are enabled:
+Run interactive setup, or create ADC again and ensure both APIs are enabled:
 
 ```bash
+analytics-ops setup
+
+# Manual equivalent
 gcloud auth application-default login \
   --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/analytics.readonly"
 ```
@@ -38,13 +44,26 @@ If `GOOGLE_APPLICATION_CREDENTIALS` is set, confirm that it points to the
 intended local credential file. Never add that path or file to configuration
 or source control.
 
+If interactive setup exits 78 because `gcloud` is unavailable, install the
+[Google Cloud CLI](https://cloud.google.com/sdk/docs/install). On macOS with
+Homebrew:
+
+```bash
+brew install --cask google-cloud-sdk
+```
+
+For a headless session, run `analytics-ops setup --no-launch-browser`. If an
+owned Desktop OAuth client is required, pass it with `--client-id-file` and
+never commit the downloaded JSON.
+
 ## Permission failure (exit 77)
 
 The Google identity needs access inside the GA4 property. Cloud IAM alone is
 not enough. Add the user or service-account identity to the property with a
 read role; use an edit-capable role only for plan application.
 
-Use `analytics-ops discover` to see accessible numeric property IDs.
+Use `analytics-ops properties` to see accessible numeric property IDs without
+creating configuration. `discover` additionally retrieves streams.
 
 ## API or remote failure (exit 69)
 
@@ -52,6 +71,10 @@ Confirm that the Google Analytics Admin API and Data API are enabled in the
 credential's Cloud project. Check the configuration ID and the error's typed
 message. Invalid dimensions, metrics, custom definitions, or property
 restrictions can also produce this status.
+
+When setup recognizes disabled APIs, it prints the exact `gcloud services
+enable` command. Replace `YOUR_GOOGLE_CLOUD_PROJECT` with the project that
+owns the quota or Desktop OAuth client.
 
 ## Quota (exit 75) or timeout (exit 74)
 

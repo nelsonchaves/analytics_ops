@@ -42,6 +42,28 @@ RSpec.describe AnalyticsOps::Workspace do
     expect(workspace.realtime).to equal(realtime_result)
   end
 
+  it "returns a gem-owned immutable batched overview" do
+    reports = AnalyticsOps::Reports::Catalog.overview.map do |definition|
+      AnalyticsOps::Reports::Result.new(
+        name: definition.name,
+        kind: "standard",
+        dimension_headers: definition.dimensions,
+        metric_headers: definition.metrics,
+        rows: [],
+        row_count: 0,
+        metadata: { "property_quota" => { "tokens_per_day" => { "consumed" => 5, "remaining" => 199_995 } } }
+      )
+    end
+    allow(data).to receive(:batch).with("123456789", AnalyticsOps::Reports::Catalog.overview).and_return(reports)
+
+    overview = workspace.overview
+
+    expect(overview).to be_a(AnalyticsOps::Reports::OverviewResult)
+    expect(overview).to be_frozen
+    expect(overview.reports).to be_frozen
+    expect(overview.property_quota.dig("tokens_per_day", "remaining")).to eq(199_995)
+  end
+
   it "rejects a realtime definition passed to report" do
     definition = AnalyticsOps::Reports::Catalog.fetch("realtime_events")
 

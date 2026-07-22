@@ -6,6 +6,7 @@ require_relative "configuration/document"
 require_relative "configuration/loader"
 require_relative "configuration/validator"
 require_relative "configuration/schema"
+require_relative "configuration/writer"
 
 module AnalyticsOps
   # Strict versioned desired-state loading.

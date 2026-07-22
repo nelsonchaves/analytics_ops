@@ -131,6 +131,18 @@ module AnalyticsOps
       def initialize: (version: Integer, profiles: Hash[String, DesiredState]) -> void
       def profile: (String | Symbol name) -> DesiredState
     end
+
+    class Writer
+      class Result
+        attr_reader path: String
+
+        def initialize: (path: String, created: bool) -> void
+        def created?: () -> bool
+        def to_h: () -> record
+      end
+
+      def write_minimal: (String path, profile: String | Symbol, property_id: String) -> Result
+    end
   end
 
   class DesiredState
@@ -277,6 +289,8 @@ module AnalyticsOps
     module Catalog
       def self.fetch: (String | Symbol name, ?kind: String?) -> Definition
       def self.names: () -> Array[String]
+      def self.aliases: () -> Hash[String, String]
+      def self.overview: () -> Array[Definition]
     end
 
     class Result
@@ -300,6 +314,18 @@ module AnalyticsOps
       def headers: () -> Array[String]
       def to_h: () -> record
     end
+
+    class OverviewResult
+      MAX_REPORTS: Integer
+
+      attr_reader property_id: String
+      attr_reader reports: Array[Result]
+      attr_reader property_quota: record
+
+      def initialize: (property_id: String, reports: Array[Result]) -> void
+      def report: (String | Symbol name) -> Result
+      def to_h: () -> record
+    end
   end
 
   module Clients
@@ -311,7 +337,7 @@ module AnalyticsOps
         ?timeout: Float?,
         ?logger: untyped
       ) -> void
-      def discover: () -> Array[Resources::Account]
+      def discover: (?include_streams: bool) -> Array[Resources::Account]
       def property_access: (String property_id) -> Resources::Property
       def snapshot: (String property_id) -> Snapshot
       def capabilities: () -> Hash[String, bool]
@@ -328,9 +354,64 @@ module AnalyticsOps
         ?logger: untyped
       ) -> void
       def run: (String property_id, Reports::Definition definition) -> Reports::Result
+      def batch: (String property_id, Array[Reports::Definition] definitions) -> Array[Reports::Result]
       def available?: () -> bool
       def compatibility: () -> record
     end
+  end
+
+  class Connection
+    class Verification
+      attr_reader property: Resources::Property
+
+      def initialize: (property: Resources::Property) -> void
+      def to_h: () -> record
+    end
+
+    def initialize: (
+      ?admin: Clients::Admin?,
+      ?data: Clients::Data?,
+      ?credentials: untyped,
+      ?transport: Symbol,
+      ?timeout: Float?,
+      ?logger: untyped
+    ) -> void
+    def discover: () -> Array[Resources::Account]
+    def properties: () -> Array[Resources::Account]
+    def verify: (String property_id) -> Verification
+  end
+
+  class Setup
+    class Result
+      attr_reader config_path: String
+      attr_reader profile: String
+      attr_reader property: Resources::Property
+
+      def initialize: (
+        config_path: String,
+        profile: String | Symbol,
+        property: Resources::Property,
+        created: bool
+      ) -> void
+      def created?: () -> bool
+      def status: () -> String
+      def to_h: () -> record
+    end
+
+    def initialize: (
+      connection: Connection,
+      config: String,
+      profile: String | Symbol,
+      ?property_id: String?,
+      ?noninteractive: bool,
+      ?client_id_file: String?,
+      ?no_launch_browser: bool,
+      ?input: untyped,
+      ?out: untyped,
+      ?err: untyped,
+      ?command_runner: untyped
+    ) -> void
+    def call: () -> Result
   end
 
   class Workspace
@@ -380,6 +461,7 @@ module AnalyticsOps
     def verify: () -> Verification
     def report: (String | Reports::Definition name_or_definition) -> Reports::Result
     def realtime: (?String | Reports::Definition name_or_definition) -> Reports::Result
+    def overview: () -> Reports::OverviewResult
     def doctor: () -> DoctorResult
   end
 
@@ -389,7 +471,9 @@ module AnalyticsOps
       ?out: untyped,
       ?err: untyped,
       ?input: untyped,
-      ?workspace_loader: untyped
+      ?workspace_loader: untyped,
+      ?connection_loader: untyped,
+      ?command_runner: untyped
     ) -> Integer
   end
 end

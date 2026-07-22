@@ -63,6 +63,7 @@ RSpec.describe "optional Rails integration" do
       "analytics:audit",
       "analytics:plan",
       "analytics:verify",
+      "analytics:overview",
       "analytics:report"
     )
   ensure

@@ -33,7 +33,9 @@ RSpec.describe "network safety" do
           def tcp(*) = raise("network attempted through Socket.tcp")
         end
         require "analytics_ops"
+        connection = AnalyticsOps::Connection.new
         document = AnalyticsOps::Configuration.load(ARGV.fetch(0), environment: {})
+        abort "wrong connection" unless connection.is_a?(AnalyticsOps::Connection)
         abort "wrong property" unless document.profile("test").property_id == "123456789"
       RUBY
 

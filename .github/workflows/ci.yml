@@ -109,7 +109,8 @@ jobs:
           ruby-version: "4.0"
           bundler-cache: true
       - run: bundle exec rake release:inspect
-      - run: gem specification pkg/analytics_ops-0.1.0.gem
+      - name: Read the built gem specification
+        run: gem specification "pkg/analytics_ops-$(ruby -Ilib -ranalytics_ops/version -e 'print AnalyticsOps::VERSION').gem"
 
   dependency-audit:
     name: Dependency audit

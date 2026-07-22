@@ -4,9 +4,12 @@ Analytics Ops is read-only unless you explicitly apply a saved plan.
 
 ## What cannot mutate
 
-`doctor`, `discover`, `snapshot`, `audit`, `plan`, `verify`,
-`report`, and `realtime` only read Google APIs. Loading the gem, parsing
-YAML, and booting Rails make no network request.
+`properties`, `doctor`, `discover`, `snapshot`, `audit`, `plan`, `verify`,
+`overview`, `report`, and `realtime` only read Google Analytics APIs. Setup
+may run Google's login command and create the local configuration file after
+access is verified; it never changes Analytics. The login command can replace
+existing local ADC. Loading the gem, constructing a connection, parsing YAML,
+and booting Rails make no network request.
 
 ## What apply requires
 

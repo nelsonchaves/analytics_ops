@@ -41,7 +41,7 @@ protobuf classes for:
 - list/create/update custom dimensions
 - list/create/update custom metrics
 - update web data-stream default URI
-- `run_report` and `run_realtime_report`
+- `run_report`, `batch_run_reports`, and `run_realtime_report`
 
 The tests also prove enum mappings and normalization into immutable gem-owned
 values without making network requests.

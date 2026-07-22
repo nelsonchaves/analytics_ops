@@ -22,8 +22,8 @@ module AnalyticsOps
                      metric_filter: nil, order_bys: [], offset: 0, limit: 100)
         @name = validate_name(name)
         @kind = validate_kind(kind)
-        @dimensions = api_names(dimensions, "dimensions", maximum: realtime_kind?(kind) ? 4 : 9)
-        @metrics = api_names(metrics, "metrics", maximum: 10)
+        @dimensions = api_names(dimensions, "dimensions", minimum: 0, maximum: realtime_kind?(kind) ? 4 : 9)
+        @metrics = api_names(metrics, "metrics", minimum: 1, maximum: 10)
         @date_ranges = ranges(date_ranges)
         @dimension_filter = string_filter(dimension_filter)
         @metric_filter = numeric_filter(metric_filter)
@@ -71,10 +71,11 @@ module AnalyticsOps
         value == "realtime"
       end
 
-      def api_names(values, label, maximum:)
-        unless values.is_a?(Array) && values.any? && values.length <= maximum &&
+      def api_names(values, label, minimum:, maximum:)
+        unless values.is_a?(Array) && values.length.between?(minimum, maximum) &&
                values.all? { |value| valid_api_name?(value) }
-          raise InvalidRequestError, "Report #{label} must contain 1 to #{maximum} valid Data API names"
+          raise InvalidRequestError,
+                "Report #{label} must contain #{minimum} to #{maximum} valid Data API names"
         end
         unless values.uniq.length == values.length
           raise InvalidRequestError,

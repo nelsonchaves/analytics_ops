@@ -6,7 +6,21 @@ tokens, or accept credential fields in configuration.
 
 ## Local read-only use
 
-Use an identity that has read access to the target GA4 property:
+The easiest path is:
+
+```bash
+analytics-ops setup
+```
+
+Setup tests existing ADC first. If login is required, it runs the official
+Google Cloud CLI command, then discovers properties and verifies both APIs.
+Google stores the resulting ADC in its standard local credential location;
+Analytics Ops never copies credentials into project files, plans, logs, or
+report output. The login command may replace existing local ADC used by other
+development tools, so setup tells you before it starts the command.
+
+To create ADC yourself, use an identity that has read access to the target
+GA4 property:
 
 ```bash
 gcloud auth application-default login \
@@ -22,6 +36,40 @@ Then run:
 
 ```bash
 analytics-ops doctor
+```
+
+If Google's shared CLI client cannot request the Analytics scope for your
+account or organization:
+
+1. Open [Google Auth Platform clients](https://console.cloud.google.com/auth/clients)
+   in the Cloud project where both Analytics APIs are enabled.
+2. Choose **Create client**, then **Desktop app**.
+3. Download the client JSON and keep it outside the repository.
+4. Pass it directly to `gcloud` through setup:
+
+```bash
+analytics-ops setup --client-id-file path/to/desktop-oauth.json
+```
+
+Google's [Desktop client instructions](https://developers.google.com/workspace/guides/create-credentials#desktop-app)
+and [`gcloud auth application-default login` reference](https://cloud.google.com/sdk/gcloud/reference/auth/application-default/login)
+describe the same two pieces. The client file identifies your local OAuth
+application; it is not a GA4 property ID or a service-account key.
+
+On a headless or SSH machine:
+
+```bash
+analytics-ops setup --no-launch-browser
+```
+
+In non-interactive environments, setup never starts a login flow. Supply
+working ADC and the property explicitly:
+
+```bash
+analytics-ops setup \
+  --property 123456789 \
+  --non-interactive \
+  --json
 ```
 
 `doctor` makes small read-only calls to both APIs. It confirms that Google
@@ -73,6 +121,7 @@ appropriate Google Analytics role.
   private keys, API keys, or OAuth secrets in `analytics_ops.yml`.
 - Never put credentials in a saved plan.
 - Never commit service-account JSON.
+- Never commit a downloaded Desktop OAuth client file.
 - Never paste credentials into an issue, fixture, log, or report.
 - Revoke or rotate credentials immediately after suspected exposure.
 - Do not create a shared public OAuth client for this gem.

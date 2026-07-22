@@ -13,6 +13,8 @@ require_relative "analytics_ops/planner"
 require_relative "analytics_ops/clients/admin"
 require_relative "analytics_ops/reports"
 require_relative "analytics_ops/clients/data"
+require_relative "analytics_ops/connection"
+require_relative "analytics_ops/setup"
 require_relative "analytics_ops/applier"
 require_relative "analytics_ops/workspace"
 

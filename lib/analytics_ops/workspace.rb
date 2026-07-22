@@ -94,6 +94,11 @@ module AnalyticsOps
       data.run(desired_state.property_id, definition)
     end
 
+    def overview
+      reports = data.batch(desired_state.property_id, Reports::Catalog.overview)
+      Reports::OverviewResult.new(property_id: desired_state.property_id, reports:)
+    end
+
     def doctor
       remote = snapshot
       checks = [

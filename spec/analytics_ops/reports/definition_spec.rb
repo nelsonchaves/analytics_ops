@@ -35,6 +35,21 @@ RSpec.describe AnalyticsOps::Reports::Definition do
     expect(AnalyticsOps::Reports::Catalog::DEFINITIONS.values).to all(be_frozen)
   end
 
+  it "keeps canonical recipe names while accepting friendly aliases" do
+    expect(AnalyticsOps::Reports::Catalog.fetch("traffic").name).to eq("traffic_acquisition")
+    expect(AnalyticsOps::Reports::Catalog.fetch("landing-pages").name).to eq("landing_pages")
+    expect(AnalyticsOps::Reports::Catalog.names).not_to include("traffic", "landing-pages")
+  end
+
+  it "defines five small immutable overview reports" do
+    overview = AnalyticsOps::Reports::Catalog.overview
+
+    expect(overview.length).to eq(5)
+    expect(overview).to be_frozen
+    expect(overview).to all(be_frozen)
+    expect(overview.sum(&:limit)).to be <= 62
+  end
+
   it "rejects malformed names, dates, filters, orders, and limits" do
     base = {
       name: "example",

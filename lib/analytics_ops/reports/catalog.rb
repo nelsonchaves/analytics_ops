@@ -5,6 +5,10 @@ module AnalyticsOps
     # Small built-in catalog focused on acquisition and calculator outcomes.
     module Catalog
       STANDARD_DATE_RANGE = [{ "start_date" => "28daysAgo", "end_date" => "yesterday" }].freeze
+      ALIASES = {
+        "traffic" => "traffic_acquisition",
+        "landing-pages" => "landing_pages"
+      }.freeze
       CALCULATOR = "customEvent:calculator_slug"
       EVENT_FILTER = lambda do |value, match_type = "exact"|
         { "field" => "eventName", "match_type" => match_type, "value" => value }
@@ -82,8 +86,11 @@ module AnalyticsOps
       module_function
 
       def fetch(name, kind: nil)
-        definition = DEFINITIONS.fetch(name.to_s) do
-          raise InvalidRequestError, "Unknown report #{name.inspect}; available reports: #{names.join(", ")}"
+        requested = name.to_s
+        canonical = ALIASES.fetch(requested, requested)
+        definition = DEFINITIONS.fetch(canonical) do
+          available = (names + ALIASES.keys).sort.join(", ")
+          raise InvalidRequestError, "Unknown report #{name.inspect}; available reports: #{available}"
         end
         if kind && definition.kind != kind.to_s
           raise InvalidRequestError, "Report #{name} is #{definition.kind}, not #{kind}"
@@ -94,6 +101,14 @@ module AnalyticsOps
 
       def names
         DEFINITIONS.keys.sort
+      end
+
+      def aliases
+        ALIASES.dup.freeze
+      end
+
+      def overview
+        Overview::DEFINITIONS
       end
     end
   end

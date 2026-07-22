@@ -19,6 +19,10 @@ All standard recipes cover the previous 28 complete days
 | `commercial_outbound_clicks` | Commercial outbound clicks by calculator and destination | `customEvent:calculator_slug`, `customEvent:outbound_destination` |
 | `realtime_events` | Event count and active users by event name | None |
 
+The CLI also accepts `traffic` as an alias for `traffic_acquisition` and
+`landing-pages` as an alias for `landing_pages`. Canonical names remain in
+JSON and Ruby results.
+
 The event names used by the calculator recipes are
 `calculation_completed`, `result_shared`, `result_printed`,
 `related_calculator_clicked`, and `commercial_outbound_clicked`.
@@ -27,15 +31,32 @@ If your site uses different names, create a custom Ruby definition.
 ## CLI
 
 ```bash
-analytics-ops report traffic_acquisition
-analytics-ops report landing_pages --format json
-analytics-ops report calculator_completions --format csv
+analytics-ops overview
+analytics-ops report traffic
+analytics-ops report landing-pages --json
+analytics-ops report calculator_completions --csv
 analytics-ops realtime
 ```
 
 CSV is accepted only for `report` and `realtime`. The CSV renderer protects
 cells that start with `=`, `+`, `-`, or `@` from spreadsheet formula
 execution.
+
+## Overview
+
+`analytics-ops overview` uses one `batchRunReports` call containing five
+small reports for the previous 28 complete days:
+
+- totals for active users, sessions, and key events
+- a daily trend
+- traffic acquisition
+- landing pages
+- device categories
+
+Each subreport has a small row limit, and Google property-quota information is
+preserved when returned. Batching reduces network round trips; it does not
+make the underlying report work quota-free. CSV is intentionally unavailable
+for this multi-report result. Use `--json` for structured overview output.
 
 ## Ruby
 
@@ -49,6 +70,10 @@ result = workspace.report("traffic_acquisition")
 puts result.headers
 puts result.rows
 puts result.metadata
+
+overview = workspace.overview
+puts overview.report("overview_totals").rows
+puts overview.property_quota
 ```
 
 Custom immutable definition:

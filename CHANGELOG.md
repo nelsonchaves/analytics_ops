@@ -3,6 +3,41 @@
 Analytics Ops follows Semantic Versioning for its public Ruby, CLI,
 configuration, and plan contracts.
 
+## [0.2.0] - 2026-07-22
+
+### Added
+
+- Configuration-free `properties` and `discover` commands, removing the
+  property-ID onboarding deadlock.
+- Interactive `setup` using Google's official ADC command, numbered property
+  selection, headless and owned Desktop OAuth client options, effective API
+  access checks, and non-interactive automation support.
+- Non-destructive atomic creation of the smallest valid `production`
+  configuration. Matching configuration is reused; conflicting profiles are
+  never overwritten.
+- A five-section, row-bounded `overview` powered by one official
+  `batchRunReports` request, with immutable normalized results and property
+  quota metadata.
+- Friendly `traffic` and `landing-pages` report aliases plus `--json` and
+  `--csv` format shortcuts.
+- Optional Rails `analytics:overview` Rake task.
+
+### Changed
+
+- Account/property-only discovery no longer fetches every property's streams;
+  detailed `discover` retains the original stream output.
+- The setup, connection, overview, CLI, Google-client, RBS, and operator
+  documentation now describe the simpler three-command start.
+
+### Security
+
+- Setup passes OAuth client paths only to `gcloud`; it never copies
+  credentials into configuration, plans, logs, or output.
+- Setup verifies access before writing configuration, and non-interactive mode
+  never starts a login flow or prompt.
+- Existing guarded apply, stale-plan, no-delete, redaction, and no-network-on-
+  load guarantees remain unchanged.
+
 ## [0.1.0] - 2026-07-22
 
 ### Added

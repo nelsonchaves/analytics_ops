@@ -6,51 +6,45 @@ Analytics Ops gives you a review-first way to inspect GA4, detect drift, run
 useful reports, and apply a small set of safe configuration changes. The core
 is plain Ruby; Rails support is optional.
 
-## Five-minute read-only start
+## Three-command start
 
-You need Ruby 3.2 or newer, a GA4 property you can read, and the
+You need Ruby 3.2 or newer, access to a GA4 property, and the
 [Google Cloud CLI](https://cloud.google.com/sdk/docs/install).
 
-1. Add Analytics Ops to your bundle:
+```bash
+gem install analytics_ops
+analytics-ops setup
+analytics-ops overview
+```
 
-   ```ruby
-   # Gemfile
-   gem "analytics_ops", "~> 0.1", group: :development
-   ```
+`setup` uses Google's official Application Default Credentials flow, lists
+the properties your Google identity can access, and lets you choose one. It
+then creates the smallest valid `config/analytics_ops.yml` for the default
+`production` profile. You do not need to find a property ID or write YAML.
 
-   ```bash
-   bundle install
-   ```
+`overview` makes one bounded batch request and shows totals, a daily trend,
+traffic acquisition, landing pages, and devices for the previous 28 complete
+days. Both commands are read-only in Google Analytics.
 
-2. Enable the Google Analytics Admin API and Data API in your own Google Cloud
-   project, then create local Application Default Credentials:
+To use Analytics Ops inside an application's bundle instead:
 
-   ```bash
-   gcloud auth application-default login \
-     --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/analytics.readonly"
-   ```
+```ruby
+# Gemfile
+gem "analytics_ops", "~> 0.2", group: :development
+```
 
-3. Create `config/analytics_ops.yml`:
+```bash
+bundle install
+bundle exec analytics-ops setup
+bundle exec analytics-ops overview
+```
 
-   ```yaml
-   version: 1
+Already authenticated? List properties before creating configuration:
 
-   profiles:
-     production:
-       property_id: "123456789"
-   ```
-
-4. Check access without changing anything:
-
-   ```bash
-   bundle exec analytics-ops doctor
-   bundle exec analytics-ops discover
-   bundle exec analytics-ops audit
-   bundle exec analytics-ops report traffic_acquisition
-   ```
-
-Every command above is read-only. `audit` exits with status 2 when it finds
-drift, which makes it useful in CI.
+```bash
+analytics-ops properties
+analytics-ops discover # includes data streams
+```
 
 ## The safe change workflow
 
@@ -81,8 +75,11 @@ what failed, and what remains.
 
 | Command | Purpose | Remote writes? |
 | --- | --- | --- |
+| `analytics-ops setup` | Authenticate, choose a property, and create minimal configuration | No |
+| `analytics-ops properties` | List accessible accounts and properties without configuration | No |
 | `analytics-ops doctor` | Check configuration, credentials, APIs, property access, clients, and clock | No |
-| `analytics-ops discover` | List accessible accounts, properties, and streams | No |
+| `analytics-ops discover` | List accessible accounts, properties, and streams without configuration | No |
+| `analytics-ops overview` | Show five useful reports in one bounded batch | No |
 | `analytics-ops snapshot` | Print normalized managed remote state | No |
 | `analytics-ops audit` | Show drift without writing a plan file | No |
 | `analytics-ops plan --output FILE` | Review and save deterministic changes | No |
@@ -92,11 +89,15 @@ what failed, and what remains.
 | `analytics-ops realtime` | Run the realtime-events report | No |
 | `analytics-ops schema --format json` | Print the configuration schema | No |
 
-Use `--format json` for automation. CSV is available only for reports:
+Use `--json` or `--format json` for automation. CSV is available only for
+individual reports:
 
 ```bash
-bundle exec analytics-ops report landing_pages --format csv
+bundle exec analytics-ops report landing-pages --csv
 ```
+
+Friendly `traffic` and `landing-pages` aliases leave the original
+`traffic_acquisition` and `landing_pages` names fully supported.
 
 See [Commands](docs/commands.md) for every option and exit status.
 
@@ -126,6 +127,9 @@ plan.write("tmp/ga4-plan.json")
 
 report = workspace.report("calculator_completions")
 report.rows.each { |row| puts row.fetch("eventCount") }
+
+overview = workspace.overview
+puts overview.report("overview_totals").rows
 ```
 
 Loading the gem, loading YAML, and booting Rails do not contact Google.
@@ -141,6 +145,7 @@ gem "analytics_ops", require: "analytics_ops/rails", group: :development
 ```bash
 bin/rails generate analytics_ops:install
 bin/rake analytics:doctor
+bin/rake analytics:overview
 bin/rake 'analytics:report[traffic_acquisition]'
 ```
 
@@ -154,7 +159,7 @@ boot-time network calls. See [Rails integration](docs/rails.md).
 - It does not store credentials, tokens, report rows, or local state.
 - It does not delete accounts, properties, streams, or unmanaged resources.
 - It does not claim to manage settings that Google exposes only in the UI.
-- Experimental declarations are findings only in version 0.1.0; they are not
+- Experimental declarations are findings only in version 0.2.0; they are not
   silently applied through Alpha APIs.
 
 ## Documentation

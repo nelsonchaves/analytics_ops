@@ -15,6 +15,11 @@ strict YAML
 immutable report definition
   → Data API adapter
   → immutable normalized result
+
+configuration-free connection
+  → account/property discovery
+  → API access verification
+  → atomic minimal configuration
 ```
 
 ## Core objects
@@ -22,6 +27,7 @@ immutable report definition
 | Object | Responsibility |
 | --- | --- |
 | `Configuration` | Bounded safe YAML, environment interpolation, schema validation |
+| `Configuration::Writer` | Non-destructive atomic creation of the smallest valid setup file |
 | `DesiredState` | Immutable configuration for one profile |
 | `Resources` | Gem-owned account/property/stream/settings values |
 | `Snapshot` | Canonical managed remote state and SHA-256 fingerprint |
@@ -31,6 +37,8 @@ immutable report definition
 | `Clients::Admin` | Official Admin request translation and response normalization |
 | `Reports::Definition` | Strict immutable Data API query |
 | `Clients::Data` | Standard/realtime request translation and result normalization |
+| `Connection` | Configuration-free discovery and selected-property access verification |
+| `Setup` | Authentication retry, property selection, verification, and safe configuration creation |
 | `Workspace` | Public orchestration API with independently injectable clients |
 | `CLI` | Option validation, formats, stable statuses, and explicit confirmation |
 | `Railtie` | Optional generator and operator Rake tasks |
@@ -42,8 +50,10 @@ Support, OAuth flows, or HTTP transports. Admin and Data adapters translate
 official generated values immediately into immutable Analytics Ops values.
 The adapters can be injected independently, so tests use deterministic fakes.
 
-The core requires Google's wrapper gems lazily. Requiring `analytics_ops`
-defines classes only; it does not instantiate a client or discover ADC.
+The core requires Google's wrapper gems lazily. Requiring `analytics_ops`,
+constructing a `Connection`, loading configuration, and booting Rails define
+or validate local objects only; they do not instantiate a generated client,
+discover ADC, or contact Google.
 
 ## State model
 
@@ -51,6 +61,11 @@ Google Analytics is the remote source of truth. There is no local state
 database. The configuration declares desired state and a snapshot captures the
 relevant remote state. Canonical key ordering and normalized arrays make
 snapshot fingerprints and plan bytes deterministic.
+
+`setup` does not add a second state store. It discovers properties through a
+configuration-free `Connection`, verifies the selected property, and creates
+the existing versioned YAML format. Existing conflicting configuration is
+never rewritten.
 
 Apply accepts an already validated plan, refreshes the snapshot, compares its
 fingerprint, then sends only the saved operations. A partial response is
@@ -83,7 +98,7 @@ call. Browser analytics and consent remain application concerns.
 
 ## Experimental boundary
 
-Google identifies certain Admin capabilities as Alpha. Version 0.1.0 accepts
+Google identifies certain Admin capabilities as Alpha. Version 0.2.0 accepts
 explicit Enhanced Measurement and Google Signals declarations only so they can
 appear as experimental findings. It does not apply them. Stable/beta
 operations do not depend on an experimental public Analytics Ops contract.

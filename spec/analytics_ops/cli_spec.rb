@@ -4,19 +4,37 @@
 
 require "stringio"
 require "tempfile"
+require "tmpdir"
 require "analytics_ops/cli"
 
 RSpec.describe AnalyticsOps::CLI do
-  def run(*arguments, workspace_loader: nil, input: StringIO.new)
+  def run(*arguments, workspace_loader: nil, connection_loader: nil, command_runner: nil, input: StringIO.new)
     out = StringIO.new
     err = StringIO.new
-    status = described_class.start(arguments, out:, err:, input:, workspace_loader:)
+    status = described_class.start(
+      arguments,
+      out:,
+      err:,
+      input:,
+      workspace_loader:,
+      connection_loader:,
+      command_runner:
+    )
 
     [status, out.string, err.string]
   end
 
   def loader_for(workspace)
     ->(**_options) { workspace }
+  end
+
+  def discovered_account
+    AnalyticsOps::Resources::Account.new(
+      id: "100000001",
+      name: "accounts/100000001",
+      display_name: "Example account",
+      properties: [property.to_h]
+    )
   end
 
   def report_result(kind: "standard")
@@ -55,13 +73,195 @@ RSpec.describe AnalyticsOps::CLI do
     expect(err).to include("Unknown command: unknown")
   end
 
+  it "discovers properties before a configuration or workspace exists" do
+    connection = instance_double(AnalyticsOps::Connection, properties: [discovered_account])
+    workspace_loader = ->(**_options) { raise "workspace must not load" }
+
+    status, output, error = run(
+      "properties",
+      connection_loader: loader_for(connection),
+      workspace_loader:
+    )
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(output).to include("Example account", "Example property", "123456789")
+    expect(output).not_to include("Stream")
+    expect(error).to be_empty
+  end
+
+  it "keeps detailed discover configuration-free" do
+    account = AnalyticsOps::Resources::Account.new(
+      id: "100000001",
+      name: "accounts/100000001",
+      display_name: "Example account",
+      properties: [property.to_h.merge("streams" => [stream.to_h])]
+    )
+    connection = instance_double(AnalyticsOps::Connection, discover: [account])
+    workspace_loader = ->(**_options) { raise "workspace must not load" }
+
+    status, output, error = run(
+      "discover",
+      connection_loader: loader_for(connection),
+      workspace_loader:
+    )
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(output).to include("Property 123456789", "Stream 987654321")
+    expect(error).to be_empty
+  end
+
+  it "sets up a selected property and writes valid production configuration" do
+    connection = instance_double(AnalyticsOps::Connection, properties: [discovered_account])
+    verification = AnalyticsOps::Connection::Verification.new(property:)
+    allow(connection).to receive(:verify).with("123456789").and_return(verification)
+
+    Dir.mktmpdir("analytics-ops-cli") do |directory|
+      path = File.join(directory, "config", "analytics_ops.yml")
+      status, output, error = run(
+        "setup", "--property", "123456789", "--config", path,
+        connection_loader: loader_for(connection)
+      )
+
+      expect(status).to eq(described_class::SUCCESS)
+      expect(output).to include("Connected production", "Next: analytics-ops overview")
+      expect(error).to be_empty
+      expect(AnalyticsOps::Configuration.load(path).profile("production").property_id).to eq("123456789")
+    end
+  end
+
+  it "shows account context and accepts a numbered property choice" do
+    first = property(id: "111111111").to_h.merge("display_name" => "Alpha property")
+    account = AnalyticsOps::Resources::Account.new(
+      id: "100000001",
+      name: "accounts/100000001",
+      display_name: "Example account",
+      properties: [first, property.to_h]
+    )
+    connection = instance_double(AnalyticsOps::Connection, properties: [account])
+    allow(connection).to receive(:verify)
+      .with("123456789")
+      .and_return(AnalyticsOps::Connection::Verification.new(property:))
+
+    Dir.mktmpdir("analytics-ops-cli") do |directory|
+      status, output, error = run(
+        "setup", "--config", File.join(directory, "analytics_ops.yml"),
+        connection_loader: loader_for(connection), input: StringIO.new("2\n")
+      )
+
+      expect(status).to eq(described_class::SUCCESS)
+      expect(output).to include("Choose a Google Analytics property", "Example account", "Property number:")
+      expect(error).to be_empty
+    end
+  end
+
+  it "runs official gcloud authentication once and retries setup" do
+    connection = instance_double(AnalyticsOps::Connection)
+    calls = 0
+    allow(connection).to receive(:properties) do
+      calls += 1
+      raise AnalyticsOps::AuthenticationError, "credentials unavailable" if calls == 1
+
+      [discovered_account]
+    end
+    allow(connection).to receive(:verify)
+      .with("123456789")
+      .and_return(AnalyticsOps::Connection::Verification.new(property:))
+    runner = double("CommandRunner", available?: true, run: true)
+
+    Dir.mktmpdir("analytics-ops-cli") do |directory|
+      client_id_file = File.join(directory, "desktop-oauth.json")
+      File.write(client_id_file, "{}")
+      status, output, error = run(
+        "setup", "--property", "123456789", "--config", File.join(directory, "analytics_ops.yml"),
+        "--client-id-file", client_id_file, "--no-launch-browser",
+        connection_loader: loader_for(connection), command_runner: runner
+      )
+
+      expect(status).to eq(described_class::SUCCESS)
+      expect(output).to include("official gcloud ADC command", "replace the local ADC credentials")
+      expect(error).to be_empty
+      expect(runner).to have_received(:run) do |arguments, **_streams|
+        expect(arguments).to include(
+          "gcloud",
+          "--client-id-file=#{client_id_file}",
+          "--no-launch-browser",
+          a_string_including("analytics.readonly")
+        )
+      end
+    end
+  end
+
+  it "does not invoke login during non-interactive setup" do
+    connection = instance_double(AnalyticsOps::Connection)
+    allow(connection).to receive(:properties).and_raise(AnalyticsOps::AuthenticationError, "credentials unavailable")
+    runner = double("CommandRunner")
+    allow(runner).to receive(:available?)
+    allow(runner).to receive(:run)
+
+    status, output, error = run(
+      "setup", "--property", "123456789", "--non-interactive",
+      connection_loader: loader_for(connection), command_runner: runner
+    )
+
+    expect(status).to eq(described_class::AUTHENTICATION_ERROR)
+    expect(output).to be_empty
+    expect(error).to include("gcloud auth application-default login")
+    expect(runner).not_to have_received(:available?)
+    expect(runner).not_to have_received(:run)
+  end
+
+  it "returns the existing unsupported status when gcloud is unavailable" do
+    connection = instance_double(AnalyticsOps::Connection)
+    allow(connection).to receive(:properties).and_raise(AnalyticsOps::AuthenticationError, "credentials unavailable")
+    runner = double("CommandRunner", available?: false)
+
+    status, output, error = run(
+      "setup", "--property", "123456789",
+      connection_loader: loader_for(connection), command_runner: runner
+    )
+
+    expect(status).to eq(described_class::UNSUPPORTED)
+    expect(output).to be_empty
+    expect(error).to include("Google Cloud CLI is required")
+  end
+
+  it "explains the owned-client and headless fallbacks when Google login fails" do
+    connection = instance_double(AnalyticsOps::Connection)
+    allow(connection).to receive(:properties).and_raise(AnalyticsOps::AuthenticationError, "credentials unavailable")
+    runner = double("CommandRunner", available?: true, run: false)
+
+    status, output, error = run(
+      "setup", "--property", "123456789",
+      connection_loader: loader_for(connection), command_runner: runner
+    )
+
+    expect(status).to eq(described_class::AUTHENTICATION_ERROR)
+    expect(output).to include("Google login is required")
+    expect(error).to include("--client-id-file PATH", "--no-launch-browser")
+  end
+
+  it "returns the existing remote status with an actionable disabled-API command" do
+    connection = instance_double(AnalyticsOps::Connection)
+    allow(connection).to receive(:properties)
+      .and_raise(AnalyticsOps::RemoteError, "SERVICE_DISABLED: API has not been used")
+
+    status, output, error = run(
+      "setup", "--property", "123456789",
+      connection_loader: loader_for(connection)
+    )
+
+    expect(status).to eq(described_class::REMOTE_ERROR)
+    expect(output).to be_empty
+    expect(error).to include("gcloud services enable", "analyticsadmin.googleapis.com", "analyticsdata.googleapis.com")
+  end
+
   it "renders report results as human, JSON, and safe CSV output" do
     workspace = double("Workspace", report: report_result)
     loader = loader_for(workspace)
 
     human_status, human, = run("report", "calculator_completions", workspace_loader: loader)
     json_status, json, = run("report", "calculator_completions", "--format", "json", workspace_loader: loader)
-    csv_status, csv, = run("report", "calculator_completions", "--format", "csv", workspace_loader: loader)
+    csv_status, csv, = run("report", "calculator_completions", "--csv", workspace_loader: loader)
 
     expect([human_status, json_status, csv_status]).to all(eq(described_class::SUCCESS))
     expect(human).to include("Report calculator_completions", "eventName")
@@ -78,6 +278,29 @@ RSpec.describe AnalyticsOps::CLI do
     expect(output).to include("realtime_events")
     expect(error).to be_empty
     expect(workspace).to have_received(:realtime).with("realtime_events")
+  end
+
+  it "renders a batched overview in human and JSON formats" do
+    reports = AnalyticsOps::Reports::Catalog.overview.map do |definition|
+      AnalyticsOps::Reports::Result.new(
+        name: definition.name,
+        kind: "standard",
+        dimension_headers: definition.dimensions,
+        metric_headers: definition.metrics,
+        rows: [],
+        row_count: 0,
+        metadata: {}
+      )
+    end
+    overview = AnalyticsOps::Reports::OverviewResult.new(property_id: "123456789", reports:)
+    workspace = double("Workspace", overview:)
+
+    human_status, human, = run("overview", workspace_loader: loader_for(workspace))
+    json_status, json, = run("overview", "--json", workspace_loader: loader_for(workspace))
+
+    expect([human_status, json_status]).to all(eq(described_class::SUCCESS))
+    expect(human).to include("Overview for property 123456789", "Traffic acquisition")
+    expect(JSON.parse(json).fetch("reports").length).to eq(5)
   end
 
   it "accepts CSV only for report result commands" do
