@@ -17,8 +17,11 @@ Thank you for helping make Analytics Ops safer and easier to use.
 
 ```bash
 bin/setup
-bundle exec rake
+bin/check
 ```
+
+`bin/check` runs the full test suite and the style checks. To run one check at
+a time, use `bundle exec rake spec` or `bundle exec rake rubocop`.
 
 ## Tests
 
