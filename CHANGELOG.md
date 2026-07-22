@@ -21,6 +21,8 @@ configuration, and plan contracts.
 - Friendly `traffic` and `landing-pages` report aliases plus `--json` and
   `--csv` format shortcuts.
 - Optional Rails `analytics:overview` Rake task.
+- A public real-app read-only smoke-test and release-gate guide, including a
+  no-CLI service-account authentication path.
 
 ### Changed
 
@@ -32,6 +34,9 @@ configuration, and plan contracts.
   data classification through configuration, snapshots, plans, and requests.
 - Rails installation now generates a minimal property-only configuration, so
   sample stream or retention values cannot become accidental changes.
+- Setup now explains the no-CLI service-account route, warns before the shared
+  OAuth client's **This app is blocked** failure, and uses Homebrew's current
+  `gcloud-cli` cask name.
 
 ### Fixed
 
@@ -46,6 +51,8 @@ configuration, and plan contracts.
   Admin responses.
 - Require the literal boolean `true` for Ruby apply confirmation and reject
   non-web, cross-property, or otherwise forged saved-plan payloads.
+- Handle Ctrl-C as clean human or JSON output with exit status 130 instead of
+  dumping a Ruby backtrace.
 
 ### Security
 

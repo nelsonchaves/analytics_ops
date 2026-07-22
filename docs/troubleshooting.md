@@ -41,9 +41,15 @@ Analytics Ops will not guess. User-data retention accepts only `2_months` or
 
 ## Authentication failure (exit 66)
 
-Run interactive setup, or create ADC again and ensure both APIs are enabled:
+Use a service account without installing a CLI, run interactive setup, or
+create user ADC again. In every case, ensure both APIs are enabled:
 
 ```bash
+# No-CLI service-account route
+export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/outside/repositories/analytics-ops-reader.json"
+analytics-ops setup
+
+# User OAuth route
 analytics-ops setup
 
 # Manual equivalent
@@ -60,12 +66,15 @@ If interactive setup exits 78 because `gcloud` is unavailable, install the
 Homebrew:
 
 ```bash
-brew install --cask google-cloud-sdk
+brew install --cask gcloud-cli
 ```
 
 For a headless session, run `analytics-ops setup --no-launch-browser`. If an
 owned Desktop OAuth client is required, pass it with `--client-id-file` and
-never commit the downloaded JSON.
+never commit the downloaded JSON. If Google shows **This app is blocked** for
+the shared client, repeating plain setup will not help; use an owned Desktop
+client or the no-CLI service-account route. See the
+[live smoke-test guide](live-smoke-test.md).
 
 ## Permission failure (exit 77)
 

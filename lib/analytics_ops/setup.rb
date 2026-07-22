@@ -168,16 +168,21 @@ module AnalyticsOps
 
     def authenticate_for_setup!
       if @noninteractive
-        raise AuthenticationError, "No usable Application Default Credentials. Run `#{authentication_command}`."
+        raise AuthenticationError,
+              "No usable Application Default Credentials. Set GOOGLE_APPLICATION_CREDENTIALS to a service-account " \
+              "JSON file, or run `#{authentication_command}`."
       end
       unless @command_runner.available?("gcloud")
         raise UnsupportedCapabilityError,
-              "Google Cloud CLI is required for interactive setup. On macOS run " \
-              "`brew install --cask google-cloud-sdk`; otherwise visit https://cloud.google.com/sdk/docs/install."
+              "Interactive user login requires Google Cloud CLI. For no-CLI setup, set " \
+              "GOOGLE_APPLICATION_CREDENTIALS to a service-account JSON file. On macOS install the CLI with " \
+              "`brew install --cask gcloud-cli`; otherwise visit https://cloud.google.com/sdk/docs/install."
       end
 
       @out.puts "Google login is required. Analytics Ops will run the official gcloud ADC command."
       @out.puts "This may replace the local ADC credentials used by other development tools."
+      @out.puts "If Google shows 'This app is blocked', cancel and use an owned Desktop OAuth client with " \
+                "--client-id-file PATH."
       succeeded = @command_runner.run(authentication_arguments, input: @input, out: @out, err: @err)
       if succeeded
         @connection.reload_credentials!
@@ -186,7 +191,8 @@ module AnalyticsOps
 
       raise AuthenticationError,
             "Google ADC login did not complete. If Google blocked the Analytics scope, create a Desktop OAuth " \
-            "client and retry with --client-id-file PATH. For a headless session, add --no-launch-browser."
+            "client and retry with --client-id-file PATH, or use a service account through " \
+            "GOOGLE_APPLICATION_CREDENTIALS. For a headless session, add --no-launch-browser."
     end
 
     def authentication_arguments

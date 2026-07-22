@@ -200,7 +200,12 @@ RSpec.describe AnalyticsOps::CLI do
       )
 
       expect(status).to eq(described_class::SUCCESS)
-      expect(output).to include("official gcloud ADC command", "replace the local ADC credentials")
+      expect(output).to include(
+        "official gcloud ADC command",
+        "replace the local ADC credentials",
+        "This app is blocked",
+        "--client-id-file PATH"
+      )
       expect(error).to be_empty
       expect(runner).to have_received(:run) do |arguments, **_streams|
         expect(arguments).to include(
@@ -228,7 +233,7 @@ RSpec.describe AnalyticsOps::CLI do
 
     expect(status).to eq(described_class::AUTHENTICATION_ERROR)
     expect(output).to be_empty
-    expect(error).to include("gcloud auth application-default login")
+    expect(error).to include("GOOGLE_APPLICATION_CREDENTIALS", "gcloud auth application-default login")
     expect(runner).not_to have_received(:available?)
     expect(runner).not_to have_received(:run)
   end
@@ -245,7 +250,7 @@ RSpec.describe AnalyticsOps::CLI do
 
     expect(status).to eq(described_class::UNSUPPORTED)
     expect(output).to be_empty
-    expect(error).to include("Google Cloud CLI is required")
+    expect(error).to include("Interactive user login requires Google Cloud CLI", "GOOGLE_APPLICATION_CREDENTIALS")
   end
 
   it "explains the owned-client and headless fallbacks when Google login fails" do
@@ -260,7 +265,28 @@ RSpec.describe AnalyticsOps::CLI do
 
     expect(status).to eq(described_class::AUTHENTICATION_ERROR)
     expect(output).to include("Google login is required")
-    expect(error).to include("--client-id-file PATH", "--no-launch-browser")
+    expect(error).to include("--client-id-file PATH", "GOOGLE_APPLICATION_CREDENTIALS", "--no-launch-browser")
+  end
+
+  it "handles Ctrl-C without a Ruby backtrace in human or JSON output" do
+    connection = instance_double(AnalyticsOps::Connection)
+    allow(connection).to receive(:properties).and_raise(Interrupt)
+    loader = loader_for(connection)
+
+    human_status, human_output, human_error = run(
+      "setup", "--property", "123456789", connection_loader: loader
+    )
+    json_status, json_output, json_error = run(
+      "setup", "--property", "123456789", "--non-interactive", "--json", connection_loader: loader
+    )
+
+    expect([human_status, json_status]).to all(eq(described_class::INTERRUPTED))
+    expect([human_output, json_output]).to all(be_empty)
+    expect(human_error).to eq("Interrupt: Interrupted by user\n")
+    expect(JSON.parse(json_error).fetch("error")).to eq(
+      "message" => "Interrupted by user",
+      "type" => "Interrupt"
+    )
   end
 
   it "returns the existing remote status with an actionable disabled-API command" do

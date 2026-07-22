@@ -4,7 +4,27 @@ Analytics Ops uses [Google Application Default Credentials (ADC)](https://cloud.
 through Google's official Ruby clients. It does not implement OAuth, store
 tokens, or accept credential fields in configuration.
 
-## Local read-only use
+## Local read-only use without Google Cloud CLI
+
+The simplest local route is a service account. Create one in the Cloud project
+where the Analytics Admin and Data APIs are enabled, download its JSON key
+outside every repository, and add the service account email in Google
+Analytics Account or Property Access Management with the Viewer role.
+
+Point Google's official clients to it for the current terminal:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/outside/repositories/analytics-ops-reader.json"
+analytics-ops setup
+```
+
+No consent screen, Desktop OAuth client, browser login, or `gcloud`
+installation is required. A normal API key cannot replace this identity
+because it does not authorize access to private Analytics data. See the
+[live smoke-test guide](live-smoke-test.md) for exact Cloud, GA4, host-app, and
+cleanup steps.
+
+## Local read-only use with your Google account
 
 The easiest path is:
 
@@ -38,8 +58,8 @@ Then run:
 analytics-ops doctor
 ```
 
-If Google's shared CLI client cannot request the Analytics scope for your
-account or organization:
+If Google's shared CLI client shows **This app is blocked** or cannot request
+the Analytics scope for your account or organization, do not keep retrying it:
 
 1. Open [Google Auth Platform clients](https://console.cloud.google.com/auth/clients)
    in the Cloud project where both Analytics APIs are enabled.

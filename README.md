@@ -8,8 +8,9 @@ is plain Ruby; Rails support is optional.
 
 ## Three-command start
 
-You need Ruby 3.2 or newer, access to a GA4 property, and the
-[Google Cloud CLI](https://cloud.google.com/sdk/docs/install).
+You need Ruby 3.2 or newer, access to a GA4 property, and Google credentials.
+The simplest no-CLI option is a service-account JSON file kept outside the
+repository; user OAuth through Google Cloud CLI is also supported.
 
 ```bash
 gem install analytics_ops
@@ -25,6 +26,10 @@ then creates the smallest valid `config/analytics_ops.yml` for the default
 `overview` makes one bounded batch request and shows totals, a daily trend,
 traffic acquisition, landing pages, and devices for the previous 28 complete
 days. Both commands are read-only in Google Analytics.
+
+See the [live read-only smoke-test guide](docs/live-smoke-test.md) for the
+no-CLI service-account setup, Desktop OAuth fallback, and a safe real-app
+release test.
 
 To use Analytics Ops inside an application's bundle instead:
 
@@ -167,6 +172,7 @@ boot-time network calls. See [Rails integration](docs/rails.md).
 | Guide | Topic |
 | --- | --- |
 | [Authentication](docs/authentication.md) | ADC, scopes, service accounts, and safe automation |
+| [Live smoke test](docs/live-smoke-test.md) | No-CLI authentication and the real-app release gate |
 | [Configuration](docs/configuration.md) | Complete strict YAML contract |
 | [Commands](docs/commands.md) | CLI syntax, formats, and exit statuses |
 | [Reports](docs/reports.md) | Built-in recipes and GA reporting limitations |

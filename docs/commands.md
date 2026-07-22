@@ -34,7 +34,10 @@ Setup first tries the existing Application Default Credentials. If they are
 missing or have insufficient effective Analytics scopes, it invokes Google's
 official `gcloud auth application-default login` command. That command may
 replace local ADC used by other development tools, so setup prints a notice
-before starting it. Setup then:
+before starting it. To avoid Google Cloud CLI and user OAuth entirely, add a
+service account to the GA4 account or property and set
+`GOOGLE_APPLICATION_CREDENTIALS` to its JSON key outside the repository before
+running setup. Setup then:
 
 1. Lists accessible accounts and properties without loading YAML.
 2. Prompts with numbered choices showing account, property name, and ID.
@@ -163,6 +166,7 @@ logged automatically.
 | 78 | Unsupported installed-client capability |
 | 79 | Stale saved plan |
 | 80 | Partial apply; inspect reconciliation output |
+| 130 | Interrupted by the user; no Ruby backtrace is printed |
 
 When `--format json` is selected, errors are JSON on standard error and are
 suitable for automation.

@@ -20,6 +20,7 @@ module AnalyticsOps
     UNSUPPORTED = 78
     STALE_PLAN = 79
     PARTIAL_APPLY = 80
+    INTERRUPTED = 130
 
     COMMANDS = %w[
       setup properties doctor discover snapshot audit plan apply verify overview report realtime schema
@@ -104,6 +105,8 @@ module AnalyticsOps
 
     def with_error_handling
       yield
+    rescue Interrupt
+      error_response(Interrupt.new("Interrupted by user"), INTERRUPTED)
     rescue OptionParser::ParseError, ConfirmationRequiredError => error
       error_response(error, USAGE_ERROR)
     rescue ConfigurationError, InvalidPlanError, ConflictError => error
