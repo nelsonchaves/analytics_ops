@@ -6,7 +6,7 @@ module AnalyticsOps
     # cross-field identity rules and printable user-visible values.
     SCHEMA = Canonical.deep_freeze(
       "$schema" => "https://json-schema.org/draft/2020-12/schema",
-      "$id" => "https://github.com/nelsonchaves/analytics_ops/blob/main/docs/configuration-schema-v1.json",
+      "$id" => "https://github.com/nelsonchaves/analytics_ops/blob/master/docs/configuration-schema-v1.json",
       "title" => "Analytics Ops configuration version 1",
       "type" => "object",
       "additionalProperties" => false,

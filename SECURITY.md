@@ -3,7 +3,7 @@
 ## Supported versions
 
 Analytics Ops is pre-release. Security fixes currently target the latest
-commit on `main`. A published support table will replace this section before
+commit on `master`. A published support table will replace this section before
 1.0.
 
 ## Report privately

@@ -23,9 +23,9 @@ Gem::Specification.new do |spec|
   spec.metadata["allowed_push_host"] = "https://rubygems.org"
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = "https://github.com/nelsonchaves/analytics_ops"
-  spec.metadata["changelog_uri"] = "https://github.com/nelsonchaves/analytics_ops/blob/main/CHANGELOG.md"
+  spec.metadata["changelog_uri"] = "https://github.com/nelsonchaves/analytics_ops/blob/master/CHANGELOG.md"
   spec.metadata["bug_tracker_uri"] = "https://github.com/nelsonchaves/analytics_ops/issues"
-  spec.metadata["documentation_uri"] = "https://github.com/nelsonchaves/analytics_ops/tree/main/docs"
+  spec.metadata["documentation_uri"] = "https://github.com/nelsonchaves/analytics_ops/tree/master/docs"
   spec.metadata["rubygems_mfa_required"] = "true"
 
   documentation = %w[

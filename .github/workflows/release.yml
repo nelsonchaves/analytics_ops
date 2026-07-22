@@ -28,7 +28,7 @@ jobs:
           ruby-version: "4.0"
           bundler-cache: true
 
-      - name: Require an annotated version tag from main
+      - name: Require an annotated version tag from master
         shell: bash
         run: |
           test "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" = "tag"
@@ -36,8 +36,8 @@ jobs:
           test "${GITHUB_REF_NAME}" = "v${version}"
           grep -F "## [${version}]" CHANGELOG.md
           commit="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
-          git fetch origin main
-          git merge-base --is-ancestor "${commit}" origin/main
+          git fetch origin master
+          git merge-base --is-ancestor "${commit}" origin/master
 
       - name: Run all release checks
         run: bundle exec rake

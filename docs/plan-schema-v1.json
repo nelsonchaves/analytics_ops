@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/nelsonchaves/analytics_ops/blob/main/docs/plan-schema-v1.json",
+  "$id": "https://github.com/nelsonchaves/analytics_ops/blob/master/docs/plan-schema-v1.json",
   "title": "Analytics Ops saved plan version 1",
   "type": "object",
   "additionalProperties": false,
