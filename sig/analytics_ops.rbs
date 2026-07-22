@@ -1,10 +1,18 @@
 module AnalyticsOps
   VERSION: String
 
+  type record = Hash[String, untyped]
+
   class Error < StandardError
   end
 
   class ConfigurationError < Error
+  end
+
+  class EnvironmentVariableError < ConfigurationError
+  end
+
+  class UnsupportedVersionError < ConfigurationError
   end
 
   class AuthenticationError < Error
@@ -16,6 +24,372 @@ module AnalyticsOps
   class UnsupportedCapabilityError < Error
   end
 
+  class ConflictError < Error
+  end
+
+  class InvalidPlanError < Error
+  end
+
   class StalePlanError < Error
+  end
+
+  class ConfirmationRequiredError < Error
+  end
+
+  class QuotaError < Error
+  end
+
+  class TimeoutError < Error
+  end
+
+  class InvalidRequestError < Error
+  end
+
+  class RemoteError < Error
+  end
+
+  class PartialApplyError < Error
+    attr_reader result: Applier::Result
+
+    def initialize: (String message, result: Applier::Result) -> void
+  end
+
+  module Resources
+    class Value
+      def to_h: () -> record
+      def ==: (untyped other) -> bool
+      def eql?: (untyped other) -> bool
+      def hash: () -> Integer
+    end
+
+    class Account < Value
+      attr_reader id: String
+      attr_reader name: String
+      attr_reader display_name: String
+      attr_reader properties: Array[record]
+    end
+
+    class Property < Value
+      attr_reader id: String
+      attr_reader name: String
+      attr_reader display_name: String
+      attr_reader parent: String?
+      attr_reader property_type: String
+      attr_reader can_edit: bool?
+    end
+
+    class DataStream < Value
+      attr_reader id: String
+      attr_reader name: String
+      attr_reader display_name: String
+      attr_reader type: String
+      attr_reader default_uri: String?
+      attr_reader measurement_id: String?
+    end
+
+    class Retention < Value
+      attr_reader name: String
+      attr_reader event_data: String
+      attr_reader user_data: String
+      attr_reader reset_on_new_activity: bool
+    end
+
+    class KeyEvent < Value
+      attr_reader name: String
+      attr_reader event_name: String
+      attr_reader counting_method: String
+    end
+
+    class CustomDimension < Value
+      attr_reader name: String
+      attr_reader parameter_name: String
+      attr_reader display_name: String
+      attr_reader description: String
+      attr_reader scope: String
+      attr_reader disallow_ads_personalization: bool
+    end
+
+    class CustomMetric < Value
+      attr_reader name: String
+      attr_reader parameter_name: String
+      attr_reader display_name: String
+      attr_reader description: String
+      attr_reader scope: String
+      attr_reader measurement_unit: String
+    end
+  end
+
+  module Configuration
+    SCHEMA: record
+
+    def self.load: (String path, ?environment: Hash[String, String]) -> Document
+
+    class Document
+      attr_reader version: Integer
+      attr_reader profiles: Hash[String, DesiredState]
+
+      def initialize: (version: Integer, profiles: Hash[String, DesiredState]) -> void
+      def profile: (String | Symbol name) -> DesiredState
+    end
+  end
+
+  class DesiredState
+    attr_reader profile: String
+    attr_reader property_id: String
+    attr_reader streams: Array[record]
+    attr_reader retention: record?
+    attr_reader key_events: Array[String]
+    attr_reader custom_dimensions: Array[record]
+    attr_reader custom_metrics: Array[record]
+    attr_reader manual_requirements: Array[String]
+    attr_reader google_signals: record?
+
+    def initialize: (
+      profile: String,
+      property_id: String,
+      streams: Array[record],
+      retention: record?,
+      key_events: Array[String],
+      custom_dimensions: Array[record],
+      custom_metrics: Array[record],
+      manual_requirements: Array[String],
+      google_signals: record?
+    ) -> void
+    def to_h: () -> record
+  end
+
+  class Snapshot
+    attr_reader property: Resources::Property
+    attr_reader streams: Array[Resources::DataStream]
+    attr_reader retention: Resources::Retention?
+    attr_reader key_events: Array[Resources::KeyEvent]
+    attr_reader custom_dimensions: Array[Resources::CustomDimension]
+    attr_reader custom_metrics: Array[Resources::CustomMetric]
+
+    def initialize: (
+      property: Resources::Property,
+      streams: Array[Resources::DataStream],
+      retention: Resources::Retention?,
+      key_events: Array[Resources::KeyEvent],
+      custom_dimensions: Array[Resources::CustomDimension],
+      custom_metrics: Array[Resources::CustomMetric]
+    ) -> void
+    def property_id: () -> String
+    def to_h: () -> record
+    def fingerprint: () -> String
+  end
+
+  class Plan
+    FORMAT_VERSION: Integer
+
+    class Change < Resources::Value
+      attr_reader resource_type: String
+      attr_reader resource_identity: String
+      attr_reader operation: String
+      attr_reader api_maturity: String
+      attr_reader before: record?
+      attr_reader after: record
+      attr_reader reversible: bool
+      attr_reader rollback: String
+
+      def self.from_h: (record raw) -> Change
+    end
+
+    class Finding < Resources::Value
+      attr_reader severity: String
+      attr_reader code: String
+      attr_reader resource_identity: String
+      attr_reader message: String
+
+      def self.from_h: (record raw) -> Finding
+    end
+
+    attr_reader format_version: Integer
+    attr_reader profile: String
+    attr_reader property_id: String
+    attr_reader snapshot_fingerprint: String
+    attr_reader changes: Array[Change]
+    attr_reader findings: Array[Finding]
+
+    def initialize: (
+      profile: String,
+      property_id: String,
+      snapshot_fingerprint: String,
+      changes: Array[Change],
+      findings: Array[Finding],
+      ?format_version: Integer
+    ) -> void
+    def self.load: (String path) -> Plan
+    def self.from_h: (record raw) -> Plan
+    def empty?: () -> bool
+    def drift?: () -> bool
+    def to_h: () -> record
+    def to_json: (*untyped arguments) -> String
+    def write: (String path) -> String
+  end
+
+  class Planner
+    def initialize: (desired_state: DesiredState, snapshot: Snapshot) -> void
+    def call: () -> Plan
+  end
+
+  class Applier
+    class Result < Resources::Value
+      attr_reader status: String
+      attr_reader applied: Array[record]
+      attr_reader failed: record?
+      attr_reader remaining: Array[record]
+    end
+
+    def initialize: (admin: Clients::Admin) -> void
+    def call: (Plan plan, ?confirm: bool) -> Result
+  end
+
+  module Reports
+    class Definition
+      attr_reader name: String
+      attr_reader kind: String
+      attr_reader dimensions: Array[String]
+      attr_reader metrics: Array[String]
+      attr_reader date_ranges: Array[record]
+      attr_reader dimension_filter: record?
+      attr_reader metric_filter: record?
+      attr_reader order_bys: Array[record]
+      attr_reader offset: Integer
+      attr_reader limit: Integer
+
+      def initialize: (
+        name: String,
+        kind: String,
+        dimensions: Array[String],
+        metrics: Array[String],
+        ?date_ranges: Array[record],
+        ?dimension_filter: record?,
+        ?metric_filter: record?,
+        ?order_bys: Array[record],
+        ?offset: Integer,
+        ?limit: Integer
+      ) -> void
+      def realtime?: () -> bool
+      def to_h: () -> record
+    end
+
+    module Catalog
+      def self.fetch: (String | Symbol name, ?kind: String?) -> Definition
+      def self.names: () -> Array[String]
+    end
+
+    class Result
+      attr_reader name: String
+      attr_reader kind: String
+      attr_reader dimension_headers: Array[String]
+      attr_reader metric_headers: Array[String]
+      attr_reader rows: Array[record]
+      attr_reader row_count: Integer
+      attr_reader metadata: record
+
+      def initialize: (
+        name: String,
+        kind: String,
+        dimension_headers: Array[String],
+        metric_headers: Array[String],
+        rows: Array[record],
+        row_count: Integer,
+        metadata: record
+      ) -> void
+      def headers: () -> Array[String]
+      def to_h: () -> record
+    end
+  end
+
+  module Clients
+    class Admin
+      def initialize: (
+        ?client: untyped,
+        ?credentials: untyped,
+        ?transport: Symbol,
+        ?timeout: Float?,
+        ?logger: untyped
+      ) -> void
+      def discover: () -> Array[Resources::Account]
+      def property_access: (String property_id) -> Resources::Property
+      def snapshot: (String property_id) -> Snapshot
+      def capabilities: () -> Hash[String, bool]
+      def compatibility: () -> record
+      def apply_change: (Plan::Change change, property_id: String) -> Plan::Change
+    end
+
+    class Data
+      def initialize: (
+        ?client: untyped,
+        ?credentials: untyped,
+        ?transport: Symbol,
+        ?timeout: Float?,
+        ?logger: untyped
+      ) -> void
+      def run: (String property_id, Reports::Definition definition) -> Reports::Result
+      def available?: () -> bool
+      def compatibility: () -> record
+    end
+  end
+
+  class Workspace
+    class Verification
+      attr_reader converged: bool
+      attr_reader plan: Plan
+
+      def initialize: (plan: Plan) -> void
+      def to_h: () -> record
+    end
+
+    class DoctorResult
+      attr_reader checks: Array[record]
+
+      def initialize: (checks: Array[record]) -> void
+      def success?: () -> bool
+      def to_h: () -> record
+    end
+
+    attr_reader desired_state: DesiredState
+
+    def self.load: (
+      String path,
+      profile: String,
+      ?environment: Hash[String, String],
+      ?admin: Clients::Admin?,
+      ?data: Clients::Data?,
+      ?credentials: untyped,
+      ?transport: Symbol,
+      ?timeout: Float?,
+      ?logger: untyped
+    ) -> Workspace
+    def initialize: (
+      desired_state: DesiredState,
+      ?admin: Clients::Admin?,
+      ?data: Clients::Data?,
+      ?credentials: untyped,
+      ?transport: Symbol,
+      ?timeout: Float?,
+      ?logger: untyped
+    ) -> void
+    def discover: () -> Array[Resources::Account]
+    def snapshot: () -> Snapshot
+    def audit: () -> Plan
+    def plan: () -> Plan
+    def apply: (Plan | String plan_or_path, ?confirm: bool) -> Applier::Result
+    def verify: () -> Verification
+    def report: (String | Reports::Definition name_or_definition) -> Reports::Result
+    def realtime: (?String | Reports::Definition name_or_definition) -> Reports::Result
+    def doctor: () -> DoctorResult
+  end
+
+  class CLI
+    def self.start: (
+      Array[String] arguments,
+      ?out: untyped,
+      ?err: untyped,
+      ?input: untyped,
+      ?workspace_loader: untyped
+    ) -> Integer
   end
 end

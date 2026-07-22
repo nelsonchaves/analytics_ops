@@ -1,4 +1,5 @@
 AllCops:
+  # Repository-wide style contract.
   CacheRootDirectory: tmp/rubocop_cache
   NewCops: enable
   SuggestExtensions: false
@@ -11,3 +12,39 @@ Style/StringLiterals:
 
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
+
+Metrics/AbcSize:
+  Max: 40
+  AllowedMethods:
+    - validate_resource_values!
+
+Metrics/BlockLength:
+  Exclude:
+    - "Rakefile"
+    - "analytics_ops.gemspec"
+    - "spec/**/*"
+
+Metrics/ClassLength:
+  Max: 400
+
+Metrics/CyclomaticComplexity:
+  Max: 13
+
+Metrics/MethodLength:
+  Max: 35
+
+Metrics/ModuleLength:
+  Max: 120
+
+Metrics/ParameterLists:
+  CountKeywordArgs: false
+
+Metrics/PerceivedComplexity:
+  Max: 10
+
+Naming/RescuedExceptionsVariableName:
+  PreferredName: error
+
+Lint/ScriptPermission:
+  Exclude:
+    - "lib/generators/**/templates/analytics-ops"

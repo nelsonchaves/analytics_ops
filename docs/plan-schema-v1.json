@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nelsonchaves/analytics_ops/blob/main/docs/plan-schema-v1.json",
+  "title": "Analytics Ops saved plan version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version", "profile", "property_id", "snapshot_fingerprint", "changes", "findings"],
+  "properties": {
+    "format_version": { "const": 1 },
+    "profile": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
+    "property_id": { "$ref": "#/$defs/id" },
+    "snapshot_fingerprint": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "changes": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/change" }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/finding" }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[0-9]{1,50}$" },
+    "text": { "type": "string", "pattern": "^[^\\u0000-\\u001F\\u007F]{1,500}$" },
+    "resourceName": {
+      "type": "string",
+      "pattern": "^properties/[0-9]{1,50}/[A-Za-z]+(?:/[A-Za-z0-9_-]+)?$"
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_type", "resource_identity", "operation", "api_maturity",
+        "before", "after", "reversible", "rollback"
+      ],
+      "properties": {
+        "resource_type": {
+          "enum": ["data_stream", "retention", "key_event", "custom_dimension", "custom_metric"]
+        },
+        "resource_identity": { "$ref": "#/$defs/text" },
+        "operation": { "enum": ["create", "update"] },
+        "api_maturity": { "enum": ["stable", "beta", "experimental"] },
+        "before": { "type": ["object", "null"] },
+        "after": { "type": "object" },
+        "reversible": { "type": "boolean" },
+        "rollback": { "$ref": "#/$defs/text" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "resource_type": { "const": "data_stream" },
+            "resource_identity": { "pattern": "^stream:[0-9]{1,50}$" },
+            "operation": { "const": "update" },
+            "before": { "$ref": "#/$defs/dataStream" },
+            "after": { "$ref": "#/$defs/dataStream" }
+          }
+        },
+        {
+          "properties": {
+            "resource_type": { "const": "retention" },
+            "resource_identity": { "pattern": "^property:[0-9]{1,50}:retention$" },
+            "operation": { "const": "update" },
+            "before": { "$ref": "#/$defs/retention" },
+            "after": { "$ref": "#/$defs/retention" }
+          }
+        },
+        {
+          "properties": {
+            "resource_type": { "const": "key_event" },
+            "resource_identity": { "pattern": "^event:[A-Za-z][A-Za-z0-9_]{0,39}$" },
+            "operation": { "const": "create" },
+            "before": { "type": "null" },
+            "after": { "$ref": "#/$defs/keyEvent" }
+          }
+        },
+        {
+          "properties": {
+            "resource_type": { "const": "custom_dimension" },
+            "resource_identity": { "pattern": "^(?:event|user|item):[A-Za-z][A-Za-z0-9_]{0,39}$" },
+            "operation": { "const": "create" },
+            "before": { "type": "null" },
+            "after": { "$ref": "#/$defs/customDimensionCreate" }
+          }
+        },
+        {
+          "properties": {
+            "resource_type": { "const": "custom_dimension" },
+            "resource_identity": { "pattern": "^(?:event|user|item):[A-Za-z][A-Za-z0-9_]{0,39}$" },
+            "operation": { "const": "update" },
+            "before": { "$ref": "#/$defs/customDimensionUpdate" },
+            "after": { "$ref": "#/$defs/customDimensionUpdate" }
+          }
+        },
+        {
+          "properties": {
+            "resource_type": { "const": "custom_metric" },
+            "resource_identity": { "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+            "operation": { "const": "create" },
+            "before": { "type": "null" },
+            "after": { "$ref": "#/$defs/customMetricCreate" }
+          }
+        },
+        {
+          "properties": {
+            "resource_type": { "const": "custom_metric" },
+            "resource_identity": { "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+            "operation": { "const": "update" },
+            "before": { "$ref": "#/$defs/customMetricUpdate" },
+            "after": { "$ref": "#/$defs/customMetricUpdate" }
+          }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "resource_identity", "message"],
+      "properties": {
+        "severity": { "enum": ["drift", "manual", "experimental", "warning"] },
+        "code": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
+        "resource_identity": { "$ref": "#/$defs/text" },
+        "message": { "type": "string", "pattern": "^[^\\u0000-\\u001F\\u007F]{1,1000}$" }
+      }
+    },
+    "dataStream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "display_name", "type", "default_uri", "measurement_id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/resourceName" },
+        "display_name": { "type": "string", "maxLength": 100 },
+        "type": { "enum": ["web", "android", "ios", "unspecified"] },
+        "default_uri": { "type": ["string", "null"], "format": "uri" },
+        "measurement_id": { "type": ["string", "null"], "maxLength": 64 }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "event_data", "user_data", "reset_on_new_activity"],
+      "properties": {
+        "name": { "$ref": "#/$defs/resourceName" },
+        "event_data": { "$ref": "#/$defs/retentionValue" },
+        "user_data": { "$ref": "#/$defs/retentionValue" },
+        "reset_on_new_activity": { "type": "boolean" }
+      }
+    },
+    "retentionValue": {
+      "enum": ["2_months", "14_months", "26_months", "38_months", "50_months"]
+    },
+    "keyEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_name", "counting_method"],
+      "properties": {
+        "event_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+        "counting_method": { "enum": ["once_per_event", "once_per_session"] }
+      }
+    },
+    "customDimensionCreate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameter_name", "display_name", "description", "scope", "disallow_ads_personalization"],
+      "properties": {
+        "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 82 },
+        "description": { "type": "string", "maxLength": 150 },
+        "scope": { "enum": ["event", "user", "item"] },
+        "disallow_ads_personalization": { "type": "boolean" }
+      }
+    },
+    "customDimensionUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "parameter_name", "display_name", "description", "scope", "disallow_ads_personalization"],
+      "properties": {
+        "name": { "$ref": "#/$defs/resourceName" },
+        "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 82 },
+        "description": { "type": "string", "maxLength": 150 },
+        "scope": { "enum": ["event", "user", "item"] },
+        "disallow_ads_personalization": { "type": "boolean" }
+      }
+    },
+    "customMetricCreate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parameter_name", "display_name", "description", "scope", "measurement_unit"],
+      "properties": {
+        "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 82 },
+        "description": { "type": "string", "maxLength": 150 },
+        "scope": { "const": "event" },
+        "measurement_unit": {
+          "enum": [
+            "standard", "currency", "feet", "meters", "kilometers", "miles",
+            "milliseconds", "seconds", "minutes", "hours"
+          ]
+        }
+      }
+    },
+    "customMetricUpdate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "parameter_name", "display_name", "description", "scope", "measurement_unit"],
+      "properties": {
+        "name": { "$ref": "#/$defs/resourceName" },
+        "parameter_name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$" },
+        "display_name": { "type": "string", "minLength": 1, "maxLength": 82 },
+        "description": { "type": "string", "maxLength": 150 },
+        "scope": { "const": "event" },
+        "measurement_unit": {
+          "enum": [
+            "standard", "currency", "feet", "meters", "kilometers", "miles",
+            "milliseconds", "seconds", "minutes", "hours"
+          ]
+        }
+      }
+    }
+  }
+}

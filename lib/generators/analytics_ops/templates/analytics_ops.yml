@@ -1,0 +1,23 @@
+# Analytics Ops contains desired GA4 state only. Never place credentials here.
+version: 1
+
+profiles:
+  development:
+    # GA4 property ID (numeric), not an account ID, stream ID, or measurement ID.
+    property_id: "${GA4_PROPERTY_ID}"
+
+    streams:
+      web:
+        # Numeric stream ID from Admin > Data streams, not the G- measurement ID.
+        stream_id: "${GA4_STREAM_ID}"
+        default_uri: "https://example.test"
+
+    retention:
+      event_data: 14_months
+      user_data: 14_months
+      reset_on_new_activity: false
+
+    key_events: []
+    custom_dimensions: []
+    custom_metrics: []
+    manual_requirements: []

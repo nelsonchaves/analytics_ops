@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+# Development and compatibility dependencies.
+
 source "https://rubygems.org"
 
 # Specify your gem's dependencies in analytics_ops.gemspec
@@ -8,6 +10,7 @@ gemspec
 gem "irb"
 gem "rake", "~> 13.0"
 
+gem "rbs", "~> 4.0", require: false
 gem "rspec", "~> 3.0"
 
 gem "rubocop", "~> 1.21"

@@ -1,0 +1,446 @@
+# frozen_string_literal: true
+
+# Official Admin API boundary.
+
+module AnalyticsOps
+  module Clients
+    # Narrow adapter around Google's generated Admin client.
+    class Admin
+      PACKAGE_REQUIREMENT = Gem::Requirement.new("~> 0.8.0")
+      RETENTION_TO_GOOGLE = {
+        "2_months" => :TWO_MONTHS,
+        "14_months" => :FOURTEEN_MONTHS,
+        "26_months" => :TWENTY_SIX_MONTHS,
+        "38_months" => :THIRTY_EIGHT_MONTHS,
+        "50_months" => :FIFTY_MONTHS
+      }.freeze
+      GOOGLE_TO_RETENTION = RETENTION_TO_GOOGLE.invert.freeze
+      STREAM_TYPES = {
+        "WEB_DATA_STREAM" => "web",
+        "ANDROID_APP_DATA_STREAM" => "android",
+        "IOS_APP_DATA_STREAM" => "ios"
+      }.freeze
+      CAPABILITIES = {
+        "account_property_discovery" => :list_account_summaries,
+        "data_stream_discovery" => :list_data_streams,
+        "data_retention" => :update_data_retention_settings,
+        "key_events" => :create_key_event,
+        "custom_dimensions" => :create_custom_dimension,
+        "custom_metrics" => :create_custom_metric
+      }.freeze
+
+      def initialize(client: nil, credentials: nil, transport: :grpc, timeout: nil, logger: nil)
+        raise ConfigurationError, "transport must be grpc or rest" unless %i[grpc rest].include?(transport.to_sym)
+
+        @client = client
+        @credentials = credentials
+        @transport = transport.to_sym
+        @timeout = timeout
+        @logger = logger
+      end
+
+      def discover
+        list(:list_account_summaries, page_size: 200).map do |summary|
+          properties = array_field(summary, :property_summaries).map do |property|
+            normalized = normalize_property(property, can_edit: field(property, :can_edit))
+            streams = list_streams(normalized.id).map(&:to_h)
+            normalized.to_h.merge("streams" => streams)
+          end
+          properties.sort_by! { |property| property.fetch("id") }
+
+          Resources::Account.new(
+            id: resource_id(field(summary, :account)),
+            name: field(summary, :account).to_s,
+            display_name: field(summary, :display_name).to_s,
+            properties:
+          )
+        end.sort_by(&:id)
+      end
+
+      def property_access(property_id)
+        id = property_id.to_s
+        list(:list_account_summaries, page_size: 200).each do |summary|
+          array_field(summary, :property_summaries).each do |property|
+            next unless resource_id(field(property, :property)) == id
+
+            return normalize_property(property, can_edit: field(property, :can_edit))
+          end
+        end
+
+        raise AuthorizationError, "Configured property is not present in accessible account summaries"
+      end
+
+      def snapshot(property_id)
+        property_name = property_name(property_id)
+        Snapshot.new(
+          property: normalize_property(get(:get_property, name: property_name), can_edit: nil),
+          streams: list_streams(property_id),
+          retention: normalize_retention(get(:get_data_retention_settings,
+                                             name: "#{property_name}/dataRetentionSettings")),
+          key_events: list(:list_key_events, parent: property_name, page_size: 200).map do |value|
+            normalize_key_event(value)
+          end,
+          custom_dimensions: list(:list_custom_dimensions, parent: property_name, page_size: 200)
+                             .map { |value| normalize_custom_dimension(value) },
+          custom_metrics: list(:list_custom_metrics, parent: property_name, page_size: 200)
+                          .map { |value| normalize_custom_metric(value) }
+        )
+      end
+
+      def capabilities
+        CAPABILITIES.to_h { |name, method| [name, client.respond_to?(method)] }.freeze
+      end
+
+      def compatibility
+        specification = Gem::Specification.find_by_name("google-analytics-admin")
+        {
+          "package" => specification.name,
+          "version" => specification.version.to_s,
+          "requirement" => PACKAGE_REQUIREMENT.to_s,
+          "supported" => PACKAGE_REQUIREMENT.satisfied_by?(specification.version),
+          "transport" => @transport.to_s
+        }.freeze
+      rescue Gem::LoadError => error
+        raise UnsupportedCapabilityError, Redaction.message(error.message)
+      end
+
+      def apply_change(change, property_id:)
+        method_name, request = mutation(change, property_id.to_s)
+        get(method_name, request)
+        change
+      end
+
+      private
+
+      def client
+        @client ||= begin
+          require "google/analytics/admin"
+          Google::Analytics::Admin.analytics_admin_service(transport: @transport) do |config|
+            config.credentials = @credentials if @credentials
+            config.timeout = @timeout if @timeout
+          end
+        end
+      end
+
+      def list_streams(property_id)
+        list(:list_data_streams, parent: property_name(property_id), page_size: 200).map do |stream|
+          normalize_stream(stream)
+        end
+      end
+
+      def list(method_name, request)
+        response = invoke(method_name, request)
+        response.respond_to?(:to_a) ? response.to_a : Array(response)
+      end
+
+      def get(method_name, request)
+        invoke(method_name, request)
+      end
+
+      def invoke(method_name, request)
+        SafeLogging.write(
+          @logger,
+          :info,
+          "google_admin_request",
+          "method" => method_name.to_s,
+          "resource" => request_resource(request)
+        )
+        generated_client = translate_errors { client }
+        unless generated_client.respond_to?(method_name)
+          raise UnsupportedCapabilityError, "Installed Google Admin client does not support #{method_name}"
+        end
+
+        translate_errors { generated_client.public_send(method_name, request) }
+      end
+
+      def request_resource(request)
+        request[:name] || request[:parent] || request.dig(:data_stream, :name) ||
+          request.dig(:data_retention_settings, :name)
+      end
+
+      def translate_errors
+        yield
+      rescue AnalyticsOps::Error
+        raise
+      rescue StandardError => error
+        translated = case error.class.name
+                     when /Unauthenticated|Google::Auth|Signet::Authorization/
+                       AuthenticationError
+                     when /PermissionDenied|Forbidden/
+                       AuthorizationError
+                     when /ResourceExhausted|TooManyRequests/
+                       QuotaError
+                     when /DeadlineExceeded|Timeout|ETIMEDOUT/
+                       TimeoutError
+                     when /InvalidArgument|FailedPrecondition|NotFound|AlreadyExists/
+                       InvalidRequestError
+                     when /Google::Cloud::|GRPC::|Faraday::|HTTP/
+                       RemoteError
+                     end
+        raise unless translated
+
+        raise translated, Redaction.message(error.message)
+      end
+
+      def normalize_property(value, can_edit:)
+        name = field(value, :property) || field(value, :name)
+        Resources::Property.new(
+          id: resource_id(name),
+          name: name.to_s,
+          display_name: field(value, :display_name).to_s,
+          parent: optional_string(field(value, :parent)),
+          property_type: normalize_enum(field(value, :property_type), prefix: "PROPERTY_TYPE_"),
+          can_edit:
+        )
+      end
+
+      def normalize_stream(value)
+        name = field(value, :name).to_s
+        type = STREAM_TYPES.fetch(enum_name(field(value, :type)), "unspecified")
+        web_data = field(value, :web_stream_data)
+        Resources::DataStream.new(
+          id: resource_id(name),
+          name:,
+          display_name: field(value, :display_name).to_s,
+          type:,
+          default_uri: optional_string(field(web_data, :default_uri)),
+          measurement_id: optional_string(field(web_data, :measurement_id))
+        )
+      end
+
+      def normalize_retention(value)
+        Resources::Retention.new(
+          name: field(value, :name).to_s,
+          event_data: normalize_retention_value(field(value, :event_data_retention)),
+          user_data: normalize_retention_value(field(value, :user_data_retention)),
+          reset_on_new_activity: boolean?(field(value, :reset_user_data_on_new_activity))
+        )
+      end
+
+      def normalize_key_event(value)
+        Resources::KeyEvent.new(
+          name: field(value, :name).to_s,
+          event_name: field(value, :event_name).to_s,
+          counting_method: normalize_enum(field(value, :counting_method))
+        )
+      end
+
+      def normalize_custom_dimension(value)
+        Resources::CustomDimension.new(
+          name: field(value, :name).to_s,
+          parameter_name: field(value, :parameter_name).to_s,
+          display_name: field(value, :display_name).to_s,
+          description: field(value, :description).to_s,
+          scope: normalize_enum(field(value, :scope), prefix: "DIMENSION_SCOPE_"),
+          disallow_ads_personalization: boolean?(field(value, :disallow_ads_personalization))
+        )
+      end
+
+      def normalize_custom_metric(value)
+        Resources::CustomMetric.new(
+          name: field(value, :name).to_s,
+          parameter_name: field(value, :parameter_name).to_s,
+          display_name: field(value, :display_name).to_s,
+          description: field(value, :description).to_s,
+          scope: normalize_enum(field(value, :scope), prefix: "METRIC_SCOPE_"),
+          measurement_unit: normalize_enum(field(value, :measurement_unit), prefix: "MEASUREMENT_UNIT_")
+        )
+      end
+
+      def mutation(change, property_id)
+        case [change.resource_type, change.operation]
+        when %w[data_stream update]
+          update_data_stream_request(change.after, property_id)
+        when %w[retention update]
+          update_retention_request(change.after, property_id)
+        when %w[key_event create]
+          create_key_event_request(change.after, property_id)
+        when %w[custom_dimension create]
+          create_custom_dimension_request(change.after, property_id)
+        when %w[custom_dimension update]
+          update_custom_dimension_request(change.after, property_id)
+        when %w[custom_metric create]
+          create_custom_metric_request(change.after, property_id)
+        when %w[custom_metric update]
+          update_custom_metric_request(change.after, property_id)
+        else
+          raise UnsupportedCapabilityError,
+                "Unsupported #{change.operation} operation for #{change.resource_type}"
+        end
+      end
+
+      def update_data_stream_request(after, property_id)
+        validate_resource_name!(after.fetch("name"), property_id, "dataStreams")
+        [
+          :update_data_stream,
+          {
+            data_stream: {
+              name: after.fetch("name"),
+              web_stream_data: { default_uri: after.fetch("default_uri") }
+            },
+            update_mask: { paths: ["web_stream_data.default_uri"] }
+          }
+        ]
+      end
+
+      def update_retention_request(after, property_id)
+        expected_name = "#{property_name(property_id)}/dataRetentionSettings"
+        unless after.fetch("name") == expected_name
+          raise InvalidPlanError,
+                "Retention resource belongs to a different property"
+        end
+
+        [
+          :update_data_retention_settings,
+          {
+            data_retention_settings: {
+              name: expected_name,
+              event_data_retention: google_retention(after.fetch("event_data")),
+              user_data_retention: google_retention(after.fetch("user_data")),
+              reset_user_data_on_new_activity: after.fetch("reset_on_new_activity")
+            },
+            update_mask: { paths: %w[event_data_retention user_data_retention reset_user_data_on_new_activity] }
+          }
+        ]
+      end
+
+      def create_key_event_request(after, property_id)
+        [
+          :create_key_event,
+          {
+            parent: property_name(property_id),
+            key_event: {
+              event_name: after.fetch("event_name"),
+              counting_method: key_event_counting_method(after.fetch("counting_method"))
+            }
+          }
+        ]
+      end
+
+      def create_custom_dimension_request(after, property_id)
+        [:create_custom_dimension, { parent: property_name(property_id), custom_dimension: dimension_payload(after) }]
+      end
+
+      def update_custom_dimension_request(after, property_id)
+        validate_resource_name!(after.fetch("name"), property_id, "customDimensions")
+        paths = %w[display_name description]
+        paths << "disallow_ads_personalization" if after.fetch("scope") == "user"
+        [
+          :update_custom_dimension,
+          {
+            custom_dimension: dimension_payload(after).merge(name: after.fetch("name")),
+            update_mask: { paths: }
+          }
+        ]
+      end
+
+      def dimension_payload(after)
+        {
+          parameter_name: after.fetch("parameter_name"),
+          display_name: after.fetch("display_name"),
+          description: after.fetch("description"),
+          scope: after.fetch("scope").upcase.to_sym,
+          disallow_ads_personalization: after.fetch("disallow_ads_personalization", false)
+        }
+      end
+
+      def create_custom_metric_request(after, property_id)
+        [:create_custom_metric, { parent: property_name(property_id), custom_metric: metric_payload(after) }]
+      end
+
+      def update_custom_metric_request(after, property_id)
+        validate_resource_name!(after.fetch("name"), property_id, "customMetrics")
+        [
+          :update_custom_metric,
+          {
+            custom_metric: metric_payload(after).merge(name: after.fetch("name")),
+            update_mask: { paths: %w[display_name description] }
+          }
+        ]
+      end
+
+      def metric_payload(after)
+        {
+          parameter_name: after.fetch("parameter_name"),
+          display_name: after.fetch("display_name"),
+          description: after.fetch("description"),
+          scope: :EVENT,
+          measurement_unit: after.fetch("measurement_unit").upcase.to_sym
+        }
+      end
+
+      def validate_resource_name!(name, property_id, collection)
+        prefix = "#{property_name(property_id)}/#{collection}/"
+        raise InvalidPlanError, "Plan resource belongs to a different property" unless name.start_with?(prefix)
+      end
+
+      def property_name(property_id)
+        id = property_id.to_s
+        raise ConfigurationError, "Invalid property ID" unless id.match?(/\A\d{1,50}\z/)
+
+        "properties/#{id}"
+      end
+
+      def google_retention(value)
+        RETENTION_TO_GOOGLE.fetch(value) do
+          raise InvalidPlanError, "Unsupported retention duration #{value.inspect}"
+        end
+      end
+
+      def key_event_counting_method(value)
+        {
+          "once_per_event" => :ONCE_PER_EVENT,
+          "once_per_session" => :ONCE_PER_SESSION
+        }.fetch(value) do
+          raise InvalidPlanError, "Unsupported key event counting method #{value.inspect}"
+        end
+      end
+
+      def normalize_retention_value(value)
+        GOOGLE_TO_RETENTION.fetch(enum_symbol(value)) do
+          normalize_enum(value, prefix: "RETENTION_DURATION_")
+        end
+      end
+
+      def field(value, name)
+        return nil if value.nil?
+        return value.public_send(name) if value.respond_to?(name)
+        return value[name] if value.respond_to?(:key?) && value.key?(name)
+        return value[name.to_s] if value.respond_to?(:key?) && value.key?(name.to_s)
+
+        nil
+      end
+
+      def array_field(value, name)
+        Array(field(value, name))
+      end
+
+      def boolean?(value)
+        value == true
+      end
+
+      def resource_id(name)
+        name.to_s.split("/").last.to_s
+      end
+
+      def optional_string(value)
+        string = value.to_s
+        string.empty? ? nil : string
+      end
+
+      def normalize_enum(value, prefix: nil)
+        name = enum_name(value)
+        name = name.delete_prefix(prefix) if prefix
+        name.downcase
+      end
+
+      def enum_name(value)
+        value.respond_to?(:name) ? value.name.to_s : value.to_s
+      end
+
+      def enum_symbol(value)
+        enum_name(value).upcase.to_sym
+      end
+    end
+  end
+end
