@@ -11,5 +11,8 @@ gem "rake", "~> 13.0"
 gem "rspec", "~> 3.0"
 
 gem "rubocop", "~> 1.21"
+# parallel 2.x requires Ruby 3.3, while Analytics Ops supports Ruby 3.2.
+# RuboCop accepts parallel 1.x, so keep this development-only dependency there.
+gem "parallel", "< 2.0"
 
 gem "bundler-audit", "~> 0.9", require: false
