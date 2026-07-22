@@ -3,7 +3,7 @@
 Analytics Ops follows Semantic Versioning for its public Ruby, CLI,
 configuration, and plan contracts.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-07-22
 
 ### Added
 
@@ -45,5 +45,3 @@ configuration, and plan contracts.
 - Credentials and report rows are excluded from configuration and plan
   contracts; common credential patterns are redacted from errors.
 - Ordinary plans cannot delete or archive resources.
-
-Version 0.1.0 has not yet been published to RubyGems.

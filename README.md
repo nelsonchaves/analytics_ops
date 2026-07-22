@@ -6,22 +6,16 @@ Analytics Ops gives you a review-first way to inspect GA4, detect drift, run
 useful reports, and apply a small set of safe configuration changes. The core
 is plain Ruby; Rails support is optional.
 
-> Analytics Ops is pre-release software. Install it from a reviewed commit
-> until version 0.1.0 is published to RubyGems.
-
 ## Five-minute read-only start
 
 You need Ruby 3.2 or newer, a GA4 property you can read, and the
 [Google Cloud CLI](https://cloud.google.com/sdk/docs/install).
 
-1. Install from a reviewed commit:
+1. Add Analytics Ops to your bundle:
 
    ```ruby
    # Gemfile
-   gem "analytics_ops",
-     github: "nelsonchaves/analytics_ops",
-     ref: "REPLACE_WITH_A_REVIEWED_COMMIT_SHA",
-     group: :development
+   gem "analytics_ops", "~> 0.1", group: :development
    ```
 
    ```bash
