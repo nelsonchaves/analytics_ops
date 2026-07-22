@@ -1,0 +1,803 @@
+ANALYTICS OPS GEM PLAN
+
+Status: Planned standalone open-source gem
+Gem name: analytics_ops
+Product name: Analytics Ops
+Ruby namespace: AnalyticsOps
+Last reviewed: 2026-07-22
+
+
+1. PRODUCT DEFINITION
+
+Build a standalone Ruby library and command-line tool that manages Google
+Analytics 4 configuration as code and retrieves GA4 reports safely.
+
+The operating loop is:
+
+  desired configuration
+    -> authenticate
+    -> discover remote resources
+    -> audit current state
+    -> calculate a deterministic plan
+    -> explicitly apply approved changes
+    -> verify convergence
+    -> query useful reports
+
+The gem is for Ruby applications, Rails applications, agencies, and teams
+that operate more than one GA4 property. Rails integration is optional. The
+core must work in a plain Ruby process and must not depend on Active Support,
+Active Record, a database, or a web application.
+
+The gem's value is not another HTTP client. Google already maintains the
+official Ruby API clients. The gem adds the operational layer those generated
+clients do not provide:
+
+- Declarative desired state.
+- Drift detection.
+- Human-readable and machine-readable plans.
+- Idempotent application of changes.
+- Safe defaults around destructive and experimental operations.
+- Reusable, typed reporting definitions.
+- A consistent CLI and Ruby API.
+- Optional Rails installation and tasks.
+
+
+2. EXPLICIT NON-GOALS
+
+The gem must not:
+
+- Inject gtag.js into application pages.
+- Implement a cookie or consent banner.
+- Replace a provider-independent application event contract.
+- Send browser events or Measurement Protocol events by default.
+- Circumvent user consent or browser privacy choices.
+- Become a general marketing dashboard.
+- Store visitor profiles or analytics data in its own database.
+- Reimplement Google authentication, retries, pagination, or wire formats.
+- Promise support for settings Google does not expose through an API.
+- Delete accounts, properties, or streams as part of an ordinary apply.
+
+Browser instrumentation remains an application concern. Measurement Protocol
+support, if ever added, must be a separate opt-in package and is outside the
+initial public contract.
+
+
+3. NAME, OWNERSHIP, AND LICENSING
+
+The gem name is `analytics_ops`, loaded with:
+
+  require "analytics_ops"
+
+The public namespace is:
+
+  AnalyticsOps
+
+RubyGems returned no existing gem for `analytics_ops` on 2026-07-22. This is an
+availability check, not a reservation. The name should be reserved on
+RubyGems and GitHub when the standalone repository is created.
+
+The public tagline is:
+
+  Google Analytics 4 configuration as code and reporting for Ruby and Rails.
+
+The independent product name avoids incorporating a Google trademark while
+the accurate descriptive tagline, gem summary, README, repository description,
+and topics make the supported provider easy to find. Do not use Google's logo,
+visual identity, or language that implies endorsement.
+
+The project should use the MIT license and carry a clear statement that it is
+an independent project and is not affiliated with or endorsed by Google.
+Google Analytics and GA4 names are used descriptively.
+
+The gem belongs in its own repository. ProjectCalc consumes released versions
+or a temporary pinned Git revision while the gem is being proven. The gem must
+not begin life as a directory coupled to the ProjectCalc application.
+
+
+4. SUPPORTED RUNTIMES AND DEPENDENCIES
+
+Initial support target:
+
+- Ruby 3.2, 3.3, 3.4, and 4.0.
+- Rails 7.2, 8.0, and 8.1 for the optional Railtie and generators.
+- Linux and macOS as first-class CLI environments.
+
+Core runtime dependencies:
+
+- `google-analytics-admin`, maintained by Google.
+- `google-analytics-data`, maintained by Google.
+
+RSpec is the test framework. The core library must not require Rails. Avoid a
+CLI framework until OptionParser becomes demonstrably inadequate. Avoid
+introducing a second HTTP, OAuth, retry, or logging stack around capabilities
+already supplied by Google's clients.
+
+The official Google clients are version-zero packages and expose both Beta
+and Alpha API surfaces. Dependency ranges must have an upper bound. Updates
+must pass the gem's API contract suite before release; Dependabot must never
+publish an API compatibility change automatically.
+
+
+5. TOP-LEVEL ARCHITECTURE
+
+  AnalyticsOps
+  |-- Configuration
+  |   |-- Loader
+  |   |-- EnvironmentInterpolation
+  |   `-- Validator
+  |-- Authentication
+  |   `-- Doctor
+  |-- Clients
+  |   |-- Admin
+  |   `-- Data
+  |-- Discovery
+  |-- Snapshot
+  |-- DesiredState
+  |-- Capabilities
+  |-- Diff
+  |-- Plan
+  |   `-- Change
+  |-- Apply
+  |-- Verify
+  |-- Resources
+  |   |-- Property
+  |   |-- DataStream
+  |   |-- Retention
+  |   |-- EnhancedMeasurement
+  |   |-- GoogleSignals
+  |   |-- KeyEvent
+  |   |-- CustomDimension
+  |   `-- CustomMetric
+  |-- Reports
+  |   |-- Definition
+  |   |-- Query
+  |   `-- Result
+  |-- CLI
+  `-- Rails
+      |-- Railtie
+      `-- Generators
+
+Every Google-generated object must be translated at a client boundary into a
+small immutable domain object owned by the gem. Planning and reporting code
+must not depend directly on generated protobuf or REST response classes.
+
+Clients must be injectable. Unit and integration tests use deterministic fake
+clients instead of reaching Google. This also lets users supply custom
+credentials, transports, endpoints, timeouts, and loggers without monkey
+patching global state.
+
+
+6. API VERSION POLICY
+
+Stable or Beta Google operations are preferred. Alpha operations must be
+isolated behind capability adapters and visibly marked experimental.
+
+The public configuration format must not expose Google's generated request
+objects or enum names. A stable gem-owned value such as `14_months` is mapped
+to the applicable Google enum at the client boundary.
+
+An experimental resource requires all of the following:
+
+- Explicit `experimental: true` configuration or CLI opt-in.
+- A named capability check against the installed Google client.
+- A clear warning in the plan.
+- Contract fixtures for the supported Google client versions.
+- A graceful unsupported result instead of NoMethodError.
+
+An Alpha API change may require a minor gem release while the gem is below
+1.0. After 1.0, a broken experimental operation does not justify breaking the
+stable public configuration or result contracts.
+
+
+7. DECLARATIVE CONFIGURATION
+
+The primary configuration is portable YAML. It is data, not executable Ruby.
+Load it with safe YAML parsing and no aliases or arbitrary object creation.
+Support only explicit `${VARIABLE_NAME}` environment interpolation; do not
+evaluate ERB.
+
+Example:
+
+  version: 1
+
+  profiles:
+    production:
+      property_id: "123456789"
+
+      streams:
+        web:
+          stream_id: "15301178942"
+          default_uri: "https://calculatemyproject.com"
+          enhanced_measurement:
+            enabled: false
+
+      retention:
+        event_data: 14_months
+        user_data: 14_months
+        reset_on_new_activity: false
+
+      google_signals:
+        state: disabled
+        experimental: true
+
+      key_events:
+        - calculation_completed
+        - result_shared
+
+      custom_dimensions:
+        - parameter_name: calculator_slug
+          display_name: Calculator slug
+          description: Published calculator identifier
+          scope: event
+        - parameter_name: category
+          display_name: Calculator category
+          description: Published calculator category
+          scope: event
+        - parameter_name: unit_system
+          display_name: Unit system
+          description: Imperial or metric selection
+          scope: event
+
+      manual_requirements:
+        - enhanced_email_redaction_enabled
+        - ads_personalization_disabled
+
+Identifiers must remain strings even when they contain only digits. Secret
+material is forbidden in the configuration schema. Unknown keys are errors,
+not warnings, so misspellings cannot silently weaken a desired policy.
+
+The schema is explicitly versioned. Configuration migrations are separate
+commands and never occur silently during apply.
+
+
+8. REMOTE IDENTITY AND IDEMPOTENCY
+
+Google Analytics remains the remote source of truth. The YAML file describes
+desired state; the gem does not require Terraform-style local state.
+
+Resources are matched using stable identities:
+
+- Property and stream resource IDs.
+- Event name for key events.
+- Parameter name and scope for custom dimensions.
+- Parameter name for custom metrics.
+
+Display names are mutable descriptions and must not be treated as identity.
+Ambiguous remote resources stop planning with an actionable error.
+
+An apply must converge:
+
+- Missing managed resources are created.
+- Mutable differences are patched.
+- Matching resources are unchanged.
+- Immutable conflicts are reported and not recreated automatically.
+- A second plan after a successful apply contains no changes.
+
+The plan records a fingerprint of the remote snapshot. Apply rejects a stale
+plan when relevant remote state changed after planning. Users must generate a
+new plan instead of overwriting concurrent changes.
+
+
+9. COMMAND-LINE CONTRACT
+
+Initial executable:
+
+  analytics-ops
+
+Commands:
+
+  analytics-ops doctor
+  analytics-ops discover
+  analytics-ops snapshot
+  analytics-ops audit
+  analytics-ops plan
+  analytics-ops apply PLAN_FILE
+  analytics-ops verify
+  analytics-ops report REPORT_NAME
+  analytics-ops realtime
+  analytics-ops schema
+  analytics-ops version
+
+Command behavior:
+
+- `doctor` checks credentials, required scopes, property access, enabled APIs,
+  client compatibility, and clock sanity without changing remote state.
+- `discover` lists accessible accounts, properties, and streams.
+- `snapshot` produces normalized current state with secrets excluded.
+- `audit` compares policy and remote state but never creates a plan file.
+- `plan` is read-only and emits both a readable summary and a JSON plan.
+- `apply` accepts a saved plan and requires explicit confirmation.
+- `verify` proves that managed state now converges.
+- `report` and `realtime` are always read-only.
+
+Global options include profile, configuration path, output format, log level,
+transport, timeout, and noninteractive behavior.
+
+Output formats:
+
+- Human-readable tables for terminals.
+- JSON for automation.
+- CSV only for report results.
+
+Stable exit codes must distinguish success, drift found, invalid
+configuration, authentication failure, permission failure, unsupported
+capability, stale plan, partial apply, and remote API failure.
+
+
+10. MUTATION SAFETY
+
+Read-only is the default mode throughout the library and CLI.
+
+Rules:
+
+- `plan` never mutates.
+- `apply` requires a plan file; it cannot infer and apply in one command.
+- Interactive apply prints the exact changes and requires confirmation.
+- Noninteractive apply requires `--yes` and a matching snapshot fingerprint.
+- Destructive changes are excluded from ordinary plans.
+- Account, property, and stream deletion are outside the 1.0 contract.
+- Archiving custom definitions requires a separate explicit command and flag.
+- The gem never deletes an unmanaged resource.
+- Partial failures produce a reconciliation report and a nonzero exit status.
+- Retries are limited to operations known to be safe and idempotent.
+- API quota and rate-limit responses use bounded exponential backoff with
+  jitter through the official client behavior.
+
+Each planned change records resource type, resource identity, operation,
+before value, after value, API maturity, reversibility, and manual rollback
+instructions where applicable.
+
+
+11. CAPABILITY MATRIX
+
+The documentation must publish a versioned support matrix with these states:
+
+- managed: readable and safely writable.
+- audited: readable but not writable.
+- experimental: available through an Alpha API with explicit opt-in.
+- manual: not exposed reliably by Google and presented as a checklist.
+- unsupported: deliberately outside the gem contract.
+
+Initial intended coverage:
+
+  Capability                         Initial state
+  ---------------------------------------------------------------
+  Account/property discovery         managed read-only
+  Data-stream discovery              managed read-only
+  Data-stream create/update          managed after contract proof
+  Data retention                     managed
+  Enhanced Measurement              experimental managed
+  Google Signals                     experimental managed or audited
+  Key events                         managed
+  Custom dimensions                  managed
+  Custom metrics                     managed
+  Standard reports                   managed read-only
+  Realtime reports                   managed read-only
+  User-provided data setting         audited when API permits
+  Ads-personalization regions        manual until API support is proven
+  Stream data redaction              manual until API support is proven
+  Consent settings                   manual/audited
+  Event create/edit rules            experimental, post-1.0 candidate
+  Audiences                          experimental, post-1.0 candidate
+  Google Ads/AdSense links           unsupported initially
+  BigQuery links                     unsupported initially
+  Access bindings                    unsupported initially
+  Measurement Protocol secrets       unsupported initially
+  Account/property deletion          unsupported
+
+The actual matrix is determined by executable contract tests against pinned
+Google client versions. Documentation must never label a UI setting managed
+only because a similarly named generated class exists.
+
+
+12. AUTHENTICATION AND AUTHORIZATION
+
+Use Google Application Default Credentials as the primary contract.
+
+Supported approaches:
+
+- Local user OAuth through Google Cloud CLI for interactive administration.
+- Service accounts for automation.
+- Workload Identity Federation for hosted CI where practical.
+- An explicitly injected Google credentials object for library users.
+
+The gem must never:
+
+- Ship a shared OAuth client ID or secret.
+- Store refresh tokens.
+- copy service-account JSON into a project.
+- print tokens, private keys, client IDs, or raw authorization headers.
+- encourage committing a credentials path or file.
+
+Read operations request `analytics.readonly`. Mutations require
+`analytics.edit`. The doctor command reports missing scopes and GA property
+roles before planning. Users own their Google Cloud project, API enablement,
+OAuth consent setup, and GA property access.
+
+An optional future multi-tenant OAuth adapter is a separate package because a
+hosted public OAuth application carries verification, token storage, support,
+and security obligations that a local operations gem does not need.
+
+
+13. REPORTING CONTRACT
+
+The reporting layer wraps Google Analytics Data API queries without hiding
+their actual semantics, quotas, thresholding, sampling, or consent coverage.
+
+It supports:
+
+- Date ranges.
+- Dimensions and metrics.
+- Dimension and metric filters.
+- Ordering and pagination.
+- Realtime queries.
+- Batch reports.
+- Response metadata and quota metadata.
+- Terminal, JSON, and CSV rendering.
+
+Built-in report recipes should be small and commercially useful:
+
+- Traffic acquisition.
+- Landing pages.
+- Calculator views and completions.
+- Completion rate by calculator.
+- Shares and prints.
+- Related-calculator navigation.
+- Commercial outbound clicks.
+- Device category and broad geography.
+- Realtime event verification.
+
+Report definitions are immutable data objects and may also be loaded from
+safe YAML. The gem must reject accidental high-cardinality dimensions in
+built-in recipes and document that GA reports represent consenting traffic,
+not exact site totals.
+
+
+14. PUBLIC RUBY API
+
+The CLI is a consumer of the same public Ruby API available to applications.
+
+Illustrative API:
+
+  workspace = AnalyticsOps::Workspace.load(
+    "config/analytics_ops.yml",
+    profile: "production"
+  )
+
+  audit = workspace.audit
+  plan = workspace.plan
+
+  plan.write("tmp/ga4-plan.json")
+  plan.apply!(confirm: true)
+
+  report = workspace.reports.run("calculator_completions")
+
+Public objects return structured result values. Normal remote failures must
+not require parsing error message strings. Define documented errors for
+configuration, authentication, authorization, capability, conflict, stale
+plan, quota, timeout, invalid request, and partial apply failures.
+
+Network calls must be explicit. Loading the gem, loading configuration, or
+booting Rails never contacts Google.
+
+
+15. OPTIONAL RAILS INTEGRATION
+
+Rails support lives behind:
+
+  require "analytics_ops/rails"
+
+The Railtie may add generators and Rake tasks, but it must not connect to
+Google during application boot or an ordinary request.
+
+Generator output:
+
+  config/analytics_ops.yml
+  bin/analytics-ops
+
+Optional Rake tasks:
+
+  analytics:doctor
+  analytics:audit
+  analytics:plan
+  analytics:verify
+  analytics:report[NAME]
+
+There is no model, migration, controller, route, JavaScript, view helper, or
+administrative web UI in the initial Rails integration. Those would couple an
+operations tool to application runtime and increase credential exposure.
+
+
+16. PRIVACY AND SECURITY
+
+The gem has no telemetry and makes no network requests except requested calls
+to documented Google API endpoints.
+
+Logging rules:
+
+- Structured logging is supported through an injected logger.
+- Credentials and authorization headers are always redacted.
+- Query results are not logged by default.
+- Configuration validation prevents secret-shaped fields.
+- Plan files contain resource configuration only, never credentials.
+- Report commands warn before emitting user-scoped or potentially sensitive
+  dimensions.
+- Raw event payload retrieval is not a feature.
+
+The repository includes SECURITY.md with private vulnerability-reporting
+instructions. Dependencies receive automated vulnerability review, but
+updates still require the compatibility suite.
+
+
+17. TESTING STRATEGY
+
+Use RSpec throughout.
+
+Unit tests cover:
+
+- Safe configuration parsing and schema versions.
+- Environment interpolation allowlists.
+- Remote normalization.
+- Every diff and planning operation.
+- Immutable conflicts and ambiguous identities.
+- Plan fingerprints and stale-plan rejection.
+- Exit codes and output redaction.
+- Error translation.
+- Report query validation.
+- Alpha capability absence and version changes.
+
+Contract tests cover:
+
+- The public methods used from each pinned Google client.
+- Request and response translation fixtures.
+- Stable and Alpha capability matrices.
+- Configuration compatibility between gem releases.
+- JSON plan schema compatibility.
+
+CLI integration tests run against fake injected clients. They prove that
+read-only commands cannot mutate and that apply executes only the operations
+contained in an approved plan.
+
+An opt-in live suite uses a dedicated disposable test property. It never runs
+against a user's production property and is never required for contributors.
+Live tests use uniquely prefixed resources and clean up only resources they
+created.
+
+CI matrix:
+
+- Ruby 3.2, 3.3, 3.4, and 4.0.
+- Latest supported Google clients and the lowest allowed versions.
+- Rails 7.2, 8.0, and 8.1 for optional integration tests.
+- Linux as the required platform; macOS smoke testing when available.
+
+Release gates include RSpec, style checks, gem build/content inspection,
+dependency audit, documentation links, public API compatibility review, and
+an idempotency fixture proving a second plan is empty.
+
+
+18. DOCUMENTATION
+
+The standalone repository must include:
+
+- README.md with a five-minute read-only start.
+- docs/authentication.md.
+- docs/configuration.md.
+- docs/commands.md.
+- docs/reports.md.
+- docs/rails.md.
+- docs/safety.md.
+- docs/api-support-matrix.md.
+- docs/google-client-compatibility.md.
+- docs/troubleshooting.md.
+- CHANGELOG.md.
+- CONTRIBUTING.md.
+- SECURITY.md.
+- CODE_OF_CONDUCT.md.
+- LICENSE.txt.
+
+Examples must use obviously fake property and stream IDs. Documentation must
+distinguish measurement ID, stream ID, property ID, account ID, OAuth client,
+and service-account identity because confusing those values is a common and
+potentially unsafe failure mode.
+
+
+19. VERSIONING AND RELEASES
+
+Use Semantic Versioning for gem-owned public contracts.
+
+- Patch: fixes that do not change public configuration or result contracts.
+- Minor: additive resources, reports, and experimental capabilities.
+- Major: incompatible configuration, plan, CLI, or Ruby API changes.
+
+The configuration schema and JSON plan schema have their own explicit version
+fields. Supporting a new Google API version does not silently rewrite either
+schema.
+
+Publish from GitHub Actions using RubyGems Trusted Publishing with OIDC.
+Do not store a RubyGems API key in repository secrets. Protect the release
+environment, require CI, require an annotated version tag, and generate the
+release notes from a reviewed changelog.
+
+The built gem must contain only runtime source, executable, license, readme,
+and required documentation. Tests, credentials, temporary plans, fixtures
+containing remote data, and development artifacts must not ship.
+
+
+20. BUILD SEQUENCE
+
+PHASE 0: PROJECT ESTABLISHMENT
+
+- Reserve `analytics_ops` on RubyGems and create the GitHub repository.
+- Add MIT license, ownership, conduct, contribution, and security documents.
+- Scaffold the gem with RSpec and a Ruby-version CI matrix.
+- Pin official Google clients with reviewed upper and lower bounds.
+- Document the public configuration and plan schemas before implementation.
+
+Exit criteria:
+
+- Gem builds reproducibly.
+- Empty library and CLI load on every supported Ruby.
+- Trusted Publishing dry-run configuration is reviewed.
+- No Rails dependency exists in the core.
+
+PHASE 1: READ-ONLY FOUNDATION
+
+- Application Default Credentials integration.
+- Doctor and discovery commands.
+- Configuration loader and validator.
+- Normalized snapshots.
+- Capability matrix.
+- Audit and deterministic plan generation.
+- Standard and realtime Data API reporting.
+- Human and JSON output.
+
+Exit criteria:
+
+- All commands are provably read-only.
+- Production properties can be audited without exposing credentials.
+- Identical remote inputs produce byte-stable normalized JSON plans.
+- ProjectCalc events can be verified through a read-only realtime report.
+
+PHASE 2: SAFE STABLE MUTATIONS
+
+- Retention settings.
+- Key events.
+- Custom dimensions.
+- Custom metrics.
+- Proven stable stream updates.
+- Snapshot fingerprints.
+- Explicit apply and post-apply verification.
+- Partial-failure reconciliation.
+
+Exit criteria:
+
+- Apply executes only saved planned changes.
+- A second plan after apply is empty.
+- Concurrent remote changes reject stale plans.
+- No destructive mutation exists in the ordinary apply path.
+
+PHASE 3: EXPERIMENTAL ADMIN CAPABILITIES
+
+- Enhanced Measurement adapter.
+- Google Signals adapter or read-only audit, depending on current API support.
+- Capability-specific client compatibility tests.
+- Manual-setting checklist output for unsupported controls.
+
+Exit criteria:
+
+- Removing an Alpha method from a fake client yields an unsupported capability,
+  not a crash.
+- Experimental changes are impossible without explicit opt-in.
+- Stable operations do not load Alpha adapters unless required.
+
+PHASE 4: RAILS INTEGRATION AND DOGFOODING
+
+- Optional Railtie, generator, binstub, and Rake tasks.
+- ProjectCalc configuration and audit integration.
+- Integration with a second independently configured project.
+- CI drift audit using read-only credentials.
+- Documentation refined from real installation feedback.
+
+Exit criteria:
+
+- No Rails boot-time network access.
+- Both projects converge from independent configuration files.
+- The gem requires no application database or runtime request integration.
+- Installation and removal leave ordinary application behavior unchanged.
+
+PHASE 5: PUBLIC 1.0
+
+- Final stable capability matrix.
+- Complete documentation and migration policy.
+- Security and dependency review.
+- Lowest/highest dependency matrix.
+- Public release candidate used against at least two real properties.
+- Trusted Publishing release.
+
+Version 1.0 means every advertised capability is safe, idempotent, documented,
+and supported. It does not mean wrapping every Google Analytics API method.
+
+
+21. PROJECTCALC INTEGRATION
+
+ProjectCalc remains provider-independent at runtime. Its existing browser
+analytics adapter, event allowlist, consent UI, and privacy behavior do not
+move into this gem.
+
+ProjectCalc uses Analytics Ops for operations only:
+
+- Audit production property settings.
+- Register approved event-scoped custom dimensions.
+- Mark selected events as key events when commercially justified.
+- Verify realtime receipt of sanitized events.
+- Produce acquisition, calculator completion, share, print, and commercial
+  outbound reports.
+- Detect configuration drift in a scheduled read-only job.
+
+Production mutation credentials must not be present in the deployed Rails web
+container. Interactive apply runs from an administrator workstation or a
+separately protected release workflow. Scheduled CI audits use read-only
+credentials.
+
+
+22. DECISIONS ALREADY MADE
+
+- Standalone public repository, not ProjectCalc-only code.
+- Gem name `analytics_ops`, product name Analytics Ops, namespace
+  `AnalyticsOps`, and executable `analytics-ops`.
+- MIT license with non-affiliation notice.
+- Plain Ruby core with optional Rails integration.
+- Official Google gems for transport and authentication.
+- YAML desired state with no ERB.
+- Read-only by default.
+- Plan file required before apply.
+- No destructive operations in ordinary apply.
+- RSpec.
+- No database.
+- No telemetry.
+- No browser tag or consent management.
+- One gem initially; split packages only if real dependency or release pressure
+  demonstrates a need.
+
+
+23. DECISIONS REQUIRED AT REPOSITORY CREATION
+
+- GitHub owner or organization.
+- RubyGems owner accounts and MFA configuration.
+- Security-reporting contact.
+- Whether the initial repository is public immediately or after the first
+  read-only release candidate.
+- Which second property will be used for independent dogfooding.
+
+These choices do not block the architecture or ProjectCalc's current Google
+Analytics configuration.
+
+
+24. PRIMARY REFERENCES
+
+Google Analytics Admin API overview:
+https://developers.google.com/analytics/devguides/config/admin/v1
+
+Google Analytics Admin API Ruby quickstart:
+https://developers.google.com/analytics/devguides/config/admin/v1/quickstart
+
+Google Analytics Data API overview:
+https://developers.google.com/analytics/devguides/reporting/data/v1
+
+Enhanced Measurement Admin API resource:
+https://developers.google.com/analytics/devguides/config/admin/v1/rest/v1alpha/EnhancedMeasurementSettings
+
+Google Analytics Admin API changelog:
+https://developers.google.com/analytics/devguides/config/admin/v1/changelog
+
+Official google-analytics-admin gem:
+https://rubygems.org/gems/google-analytics-admin
+
+Official google-analytics-data gem:
+https://rubygems.org/gems/google-analytics-data
+
+RubyGems Trusted Publishing:
+https://guides.rubygems.org/trusted-publishing/
+
+Google Brand Resource Center guidance:
+https://about.google/brand-resource-center/guidance/
