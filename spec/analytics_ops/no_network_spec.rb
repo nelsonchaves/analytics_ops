@@ -61,20 +61,30 @@ RSpec.describe "network safety" do
         def tcp(*) = raise("network attempted through Socket.tcp")
       end
       require "analytics_ops"
-      require "googleauth"
-      credentials = Google::Auth::UserRefreshCredentials.new(
-        client_id: "obviously-fake.apps.googleusercontent.test",
-        client_secret: "obviously-fake",
-        refresh_token: "obviously-fake",
-        scope: ["https://www.googleapis.com/auth/analytics.readonly"]
-      )
-      def credentials.universe_domain = "googleapis.com"
+      require "json"
+      require "openssl"
+      require "tmpdir"
+      key = {
+        "type" => "service_account",
+        "project_id" => "example-analytics-project",
+        "private_key_id" => "obviously-fake",
+        "private_key" => OpenSSL::PKey::RSA.generate(1024).to_pem,
+        "client_email" => "analytics-ops@example-analytics-project.iam.gserviceaccount.com",
+        "client_id" => "100000000000000000001",
+        "token_uri" => "https://oauth2.googleapis.com/token"
+      }
 
-      [:grpc, :rest].each do |transport|
-        admin = AnalyticsOps::Clients::Admin.new(credentials: credentials, transport: transport)
-        data = AnalyticsOps::Clients::Data.new(credentials: credentials, transport: transport)
-        abort "missing Admin client" unless admin.send(:client)
-        abort "missing Data client" unless data.send(:client)
+      Dir.mktmpdir("analytics-ops-service-account") do |directory|
+        path = File.join(directory, "service-account.json")
+        File.write(path, JSON.generate(key))
+        service_account = AnalyticsOps::ServiceAccount.new(path)
+
+        [:grpc, :rest].each do |transport|
+          admin = AnalyticsOps::Clients::Admin.new(service_account: service_account, transport: transport)
+          data = AnalyticsOps::Clients::Data.new(service_account: service_account, transport: transport)
+          abort "missing Admin client" unless admin.send(:client)
+          abort "missing Data client" unless data.send(:client)
+        end
       end
     RUBY
 

@@ -6,10 +6,10 @@ Analytics Ops is read-only unless you explicitly apply a saved plan.
 
 `properties`, `doctor`, `discover`, `snapshot`, `audit`, `plan`, `verify`,
 `overview`, `report`, and `realtime` only read Google Analytics APIs. Setup
-may run Google's login command and create the local configuration file after
-access is verified; it never changes Analytics. The login command can replace
-existing local ADC. Loading the gem, constructing a connection, parsing YAML,
-and booting Rails make no network request.
+validates a service-account key, verifies access, remembers only its path, and
+creates local configuration; it never changes Analytics. Loading the gem,
+constructing a connection, parsing YAML, and booting Rails make no network
+request.
 
 ## What apply requires
 
@@ -89,11 +89,17 @@ The public schema is [plan-schema-v1.json](plan-schema-v1.json).
 ## Credential and data boundaries
 
 - Credentials never belong in YAML, plans, fixtures, logs, or command output.
+- `~/.config/analytics_ops/connection.json` contains only a key path, is
+  atomic, and uses mode `0600`; the key is never copied.
+- Ambient Application Default Credentials and API keys are never used.
+- Read-only commands request only `analytics.readonly`; guarded apply also
+  requests `analytics.edit`.
 - Report rows are never logged automatically.
 - The gem has no telemetry and stores no report results.
 - The gem does not inject browser analytics or manage consent.
 - Production mutation credentials should not exist in a Rails web container.
 - Real production IDs and exports do not belong in repository fixtures.
 
-Use a read-only identity for routine audits and reports. Use a separately
-protected edit identity only for a reviewed apply.
+Use a Viewer service account for reports-only installations. If one service
+account has the Editor role, Analytics Ops still requests edit scope only
+inside the reviewed apply path.

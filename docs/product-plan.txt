@@ -392,31 +392,23 @@ only because a similarly named generated class exists.
 
 12. AUTHENTICATION AND AUTHORIZATION
 
-Use Google Application Default Credentials as the primary contract.
-
-Supported approaches:
-
-- Local user OAuth through Google Cloud CLI for interactive administration.
-- Service accounts for automation.
-- Workload Identity Federation for hosted CI where practical.
-- An explicitly injected Google credentials object for library users.
+Use a Google service-account JSON key as the only authentication contract.
+The same explicit identity works for local use, Ruby callers, and automation.
+The CLI remembers only its canonical path in a mode-0600 user-level file.
 
 The gem must never:
 
-- Ship a shared OAuth client ID or secret.
+- Fall back to Application Default Credentials, API keys, browser login, or
+  external authentication commands.
 - Store refresh tokens.
 - copy service-account JSON into a project.
 - print tokens, private keys, client IDs, or raw authorization headers.
-- encourage committing a credentials path or file.
+- place a credentials path or file in project configuration or source control.
 
-Read operations request `analytics.readonly`. Mutations require
-`analytics.edit`. The doctor command reports missing scopes and GA property
-roles before planning. Users own their Google Cloud project, API enablement,
-OAuth consent setup, and GA property access.
-
-An optional future multi-tenant OAuth adapter is a separate package because a
-hosted public OAuth application carries verification, token storage, support,
-and security obligations that a local operations gem does not need.
+Read operations request `analytics.readonly`. Only guarded apply requests
+`analytics.edit`. The doctor command proves effective API and GA property
+access. Users own their Google Cloud project, API enablement, service-account
+key lifecycle, and GA property access.
 
 
 13. REPORTING CONTRACT
@@ -596,7 +588,7 @@ The standalone repository must include:
 - LICENSE.txt.
 
 Examples must use obviously fake property and stream IDs. Documentation must
-distinguish measurement ID, stream ID, property ID, account ID, OAuth client,
+distinguish measurement ID, stream ID, property ID, account ID, Cloud project,
 and service-account identity because confusing those values is a common and
 potentially unsafe failure mode.
 
@@ -642,7 +634,7 @@ Exit criteria:
 
 PHASE 1: READ-ONLY FOUNDATION
 
-- Application Default Credentials integration.
+- Explicit service-account integration.
 - Doctor and discovery commands.
 - Configuration loader and validator.
 - Normalized snapshots.

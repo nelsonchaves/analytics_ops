@@ -11,10 +11,9 @@ module AnalyticsOps
         log_level: "warn",
         transport: :grpc,
         yes: false,
-        noninteractive: false,
-        no_launch_browser: false
+        noninteractive: false
       }.freeze
-      SETUP_OPTIONS = %i[property client_id_file no_launch_browser].freeze
+      SETUP_OPTIONS = %i[property service_account].freeze
       PROPERTY_ID = /\A\d{1,50}\z/
       PROFILE = /\A[A-Za-z][A-Za-z0-9_]{0,63}\z/
 
@@ -69,11 +68,8 @@ module AnalyticsOps
 
       def add_setup_options(options)
         options.on("--property ID", "Property to select during setup") { |id| @values[:property] = id }
-        options.on("--client-id-file PATH", "Desktop OAuth client file for setup") do |path|
-          @values[:client_id_file] = path
-        end
-        options.on("--no-launch-browser", "Print the Google login URL instead of opening it") do
-          @values[:no_launch_browser] = true
+        options.on("--service-account PATH", "Google service-account JSON key for setup") do |path|
+          @values[:service_account] = path
         end
       end
 
@@ -119,14 +115,14 @@ module AnalyticsOps
         end
         return if SETUP_OPTIONS.none? { |name| @values[name] } || command == "setup"
 
-        raise OptionParser::InvalidArgument, "--property, --client-id-file, and --no-launch-browser are setup-only"
+        raise OptionParser::InvalidArgument, "--property and --service-account are setup-only"
       end
 
       def validate_setup!
         validate_setup_property!
         raise OptionParser::InvalidArgument, "--profile is invalid" unless PROFILE.match?(@values.fetch(:profile))
 
-        validate_setup_client!
+        validate_service_account!
         validate_setup_json!
       end
 
@@ -139,10 +135,10 @@ module AnalyticsOps
         raise OptionParser::InvalidArgument, "--property must be a numeric GA4 property ID"
       end
 
-      def validate_setup_client!
-        return unless @values[:client_id_file] && !File.file?(@values.fetch(:client_id_file))
+      def validate_service_account!
+        return unless @values[:service_account] && !File.file?(@values.fetch(:service_account))
 
-        raise OptionParser::InvalidArgument, "--client-id-file must identify an existing file"
+        raise OptionParser::InvalidArgument, "--service-account must identify an existing file"
       end
 
       def validate_setup_json!

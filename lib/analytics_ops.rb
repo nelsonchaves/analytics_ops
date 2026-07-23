@@ -3,6 +3,7 @@
 require_relative "analytics_ops/version"
 require_relative "analytics_ops/errors"
 require_relative "analytics_ops/redaction"
+require_relative "analytics_ops/service_account"
 require_relative "analytics_ops/canonical"
 require_relative "analytics_ops/resources"
 require_relative "analytics_ops/desired_state"

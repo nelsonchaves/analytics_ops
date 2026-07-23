@@ -52,20 +52,20 @@ RSpec.describe AnalyticsOps::Connection do
       .to raise_error(AnalyticsOps::ConfigurationError, /numeric string/)
   end
 
-  it "resets lazy generated clients after an external ADC login" do
+  it "passes only explicit service-account credentials to lazy generated clients" do
     generated_admin = instance_double(AnalyticsOps::Clients::Admin)
-    generated_data = instance_double(AnalyticsOps::Clients::Data)
+    service_account = AnalyticsOps::ServiceAccount.allocate
     allow(AnalyticsOps::Clients::Admin).to receive(:new).and_return(generated_admin)
-    allow(AnalyticsOps::Clients::Data).to receive(:new).and_return(generated_data)
-    connection = described_class.new
+    allow(generated_admin).to receive(:discover).and_return([])
+    connection = described_class.new(service_account:)
 
-    connection.send(:admin)
-    connection.send(:data)
-    connection.reload_credentials!
-    connection.send(:admin)
-    connection.send(:data)
-
-    expect(AnalyticsOps::Clients::Admin).to have_received(:new).twice
-    expect(AnalyticsOps::Clients::Data).to have_received(:new).twice
+    expect(connection.discover).to eq([])
+    expect(AnalyticsOps::Clients::Admin).to have_received(:new).with(
+      service_account:,
+      access: :read,
+      transport: :grpc,
+      timeout: nil,
+      logger: nil
+    ).once
   end
 end

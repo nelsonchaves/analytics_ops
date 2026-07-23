@@ -31,7 +31,7 @@ module AnalyticsOps
     CONNECTION_COMMANDS = %w[setup properties discover].freeze
 
     def self.start(arguments, out: $stdout, err: $stderr, input: $stdin, workspace_loader: nil,
-                   connection_loader: nil, command_runner: nil)
+                   connection_loader: nil, service_account_loader: nil, service_account_store: nil)
       new(
         arguments,
         out:,
@@ -39,11 +39,13 @@ module AnalyticsOps
         input:,
         workspace_loader:,
         connection_loader:,
-        command_runner:
+        service_account_loader:,
+        service_account_store:
       ).call
     end
 
-    def initialize(arguments, out:, err:, input:, workspace_loader:, connection_loader:, command_runner:)
+    def initialize(arguments, out:, err:, input:, workspace_loader:, connection_loader:,
+                   service_account_loader:, service_account_store:)
       @arguments = arguments.dup
       @json_requested = json_option_present?(@arguments)
       @out = out
@@ -51,7 +53,8 @@ module AnalyticsOps
       @input = input
       @workspace_loader = workspace_loader || method(:load_workspace)
       @connection_loader = connection_loader || method(:load_connection)
-      @command_runner = command_runner
+      @service_account_loader = service_account_loader || ServiceAccount.method(:load)
+      @service_account_store = service_account_store
     end
 
     def call
@@ -85,17 +88,21 @@ module AnalyticsOps
       return render(Configuration::SCHEMA, status: SUCCESS) if command == "schema"
 
       if CONNECTION_COMMANDS.include?(command)
+        service_account = load_service_account
         connection = @connection_loader.call(
+          service_account:,
           transport: @options.fetch(:transport),
           timeout: @options[:timeout],
           logger: operation_logger
         )
-        return dispatch_connection(command, connection)
+        return dispatch_connection(command, connection, service_account)
       end
 
+      service_account = load_service_account
       workspace = @workspace_loader.call(
         config: @options.fetch(:config),
         profile: @options.fetch(:profile),
+        service_account:,
         transport: @options.fetch(:transport),
         timeout: @options[:timeout],
         logger: operation_logger
@@ -155,31 +162,28 @@ module AnalyticsOps
       end
     end
 
-    def dispatch_connection(command, connection)
+    def dispatch_connection(command, connection, service_account)
       case command
       when "discover"
         render(connection.discover)
       when "properties"
         render_properties(connection.properties)
       when "setup"
-        setup(connection)
+        setup(connection, service_account)
       end
     end
 
-    def setup(connection)
+    def setup(connection, service_account)
       result = Setup.new(
         connection:,
         config: @options.fetch(:config),
         profile: @options.fetch(:profile),
         property_id: @options[:property],
         noninteractive: @options[:noninteractive],
-        client_id_file: @options[:client_id_file],
-        no_launch_browser: @options[:no_launch_browser],
         input: @input,
-        out: @out,
-        err: @err,
-        command_runner: @command_runner
+        out: @out
       ).call
+      service_account_store.write(service_account.path)
 
       if human?
         action = result.created? ? "Created" : "Using"
@@ -236,12 +240,23 @@ module AnalyticsOps
       true
     end
 
-    def load_workspace(config:, profile:, transport:, timeout:, logger:)
-      Workspace.load(config, profile:, transport:, timeout:, logger:)
+    def load_workspace(config:, profile:, service_account:, transport:, timeout:, logger:)
+      Workspace.load(config, profile:, service_account:, transport:, timeout:, logger:)
     end
 
-    def load_connection(transport:, timeout:, logger:)
-      Connection.new(transport:, timeout:, logger:)
+    def load_connection(service_account:, transport:, timeout:, logger:)
+      Connection.new(service_account:, transport:, timeout:, logger:)
+    end
+
+    def load_service_account
+      @service_account_loader.call(
+        path: @options[:service_account],
+        store: service_account_store
+      )
+    end
+
+    def service_account_store
+      @service_account_store ||= ServiceAccount::Store.new
     end
 
     def operation_logger
@@ -368,8 +383,7 @@ module AnalyticsOps
               --csv                 Shortcut for --format csv
           -o, --output PATH         Save a generated plan (plan only)
               --property ID         Select a property without prompting (setup only)
-              --client-id-file PATH Owned Desktop OAuth client file (setup only)
-              --no-launch-browser   Print login instructions instead of opening a browser
+              --service-account PATH Google service-account JSON key (setup only)
               --transport NAME      grpc or rest
               --timeout SECONDS     Positive Google API timeout
               --log-level LEVEL     debug, info, warn, or error

@@ -54,6 +54,30 @@ module AnalyticsOps
     def initialize: (String message, result: Applier::Result) -> void
   end
 
+  class ServiceAccount
+    MAX_KEY_BYTES: Integer
+    READ_SCOPE: String
+    EDIT_SCOPE: String
+    ACCESS_SCOPES: Hash[Symbol, Array[String]]
+
+    attr_reader path: String
+
+    def self.load: (?path: String?, ?store: Store) -> ServiceAccount
+    def initialize: (String path) -> void
+
+    class Store
+      VERSION: Integer
+      MAX_BYTES: Integer
+
+      attr_reader path: String
+
+      def self.default_path: () -> String
+      def initialize: (?path: String?) -> void
+      def read: () -> String
+      def write: (String service_account_path) -> String
+    end
+  end
+
   module Resources
     class Value
       def to_h: () -> record
@@ -333,7 +357,8 @@ module AnalyticsOps
     class Admin
       def initialize: (
         ?client: untyped,
-        ?credentials: untyped,
+        ?service_account: ServiceAccount?,
+        ?access: :read | :edit,
         ?transport: Symbol,
         ?timeout: (Integer | Float)?,
         ?logger: untyped
@@ -349,7 +374,7 @@ module AnalyticsOps
     class Data
       def initialize: (
         ?client: untyped,
-        ?credentials: untyped,
+        ?service_account: ServiceAccount?,
         ?transport: Symbol,
         ?timeout: (Integer | Float)?,
         ?logger: untyped
@@ -372,7 +397,7 @@ module AnalyticsOps
     def initialize: (
       ?admin: Clients::Admin?,
       ?data: Clients::Data?,
-      ?credentials: untyped,
+      ?service_account: ServiceAccount?,
       ?transport: Symbol,
       ?timeout: (Integer | Float)?,
       ?logger: untyped
@@ -380,7 +405,6 @@ module AnalyticsOps
     def discover: () -> Array[Resources::Account]
     def properties: () -> Array[Resources::Account]
     def verify: (String property_id) -> Verification
-    def reload_credentials!: () -> Connection
   end
 
   class Setup
@@ -406,12 +430,8 @@ module AnalyticsOps
       profile: String | Symbol,
       ?property_id: String?,
       ?noninteractive: bool,
-      ?client_id_file: String?,
-      ?no_launch_browser: bool,
       ?input: untyped,
-      ?out: untyped,
-      ?err: untyped,
-      ?command_runner: untyped
+      ?out: untyped
     ) -> void
     def call: () -> Result
   end
@@ -441,7 +461,7 @@ module AnalyticsOps
       ?environment: Hash[String, String],
       ?admin: Clients::Admin?,
       ?data: Clients::Data?,
-      ?credentials: untyped,
+      ?service_account: ServiceAccount?,
       ?transport: Symbol,
       ?timeout: (Integer | Float)?,
       ?logger: untyped
@@ -450,7 +470,7 @@ module AnalyticsOps
       desired_state: DesiredState,
       ?admin: Clients::Admin?,
       ?data: Clients::Data?,
-      ?credentials: untyped,
+      ?service_account: ServiceAccount?,
       ?transport: Symbol,
       ?timeout: (Integer | Float)?,
       ?logger: untyped
@@ -475,7 +495,8 @@ module AnalyticsOps
       ?input: untyped,
       ?workspace_loader: untyped,
       ?connection_loader: untyped,
-      ?command_runner: untyped
+      ?service_account_loader: untyped,
+      ?service_account_store: ServiceAccount::Store?
     ) -> Integer
   end
 end

@@ -9,9 +9,11 @@ configuration, and plan contracts.
 
 - Configuration-free `properties` and `discover` commands, removing the
   property-ID onboarding deadlock.
-- Interactive `setup` using Google's official ADC command, numbered property
-  selection, headless and owned Desktop OAuth client options, effective API
-  access checks, and non-interactive automation support.
+- Service-account-only `setup` with strict JSON-key validation, numbered
+  property selection, effective API access checks, and non-interactive
+  automation support.
+- Atomic mode-`0600` user-level connection storage that remembers only the
+  service-account key path and never copies the key.
 - Non-destructive atomic creation of the smallest valid `production`
   configuration. Matching configuration is reused; conflicting profiles are
   never overwritten.
@@ -21,8 +23,8 @@ configuration, and plan contracts.
 - Friendly `traffic` and `landing-pages` report aliases plus `--json` and
   `--csv` format shortcuts.
 - Optional Rails `analytics:overview` Rake task.
-- A public real-app read-only smoke-test and release-gate guide, including a
-  no-CLI service-account authentication path.
+- A public real-app read-only smoke-test and release-gate guide using the
+  single service-account authentication path.
 
 ### Changed
 
@@ -34,9 +36,15 @@ configuration, and plan contracts.
   data classification through configuration, snapshots, plans, and requests.
 - Rails installation now generates a minimal property-only configuration, so
   sample stream or retention values cannot become accidental changes.
-- Setup now explains the no-CLI service-account route, warns before the shared
-  OAuth client's **This app is blocked** failure, and uses Homebrew's current
-  `gcloud-cli` cask name.
+- The Rails generator preserves configuration already created by setup and
+  adds the binstub without an overwrite prompt.
+- Every CLI and Ruby orchestration path now loads an explicit service account;
+  ambient credentials, API keys, browser login, and external CLI
+  authentication are not fallback paths.
+- `googleauth` is now a direct reviewed dependency because Analytics Ops calls
+  its service-account loader explicitly.
+- Read-only operations request only `analytics.readonly`; guarded apply
+  creates a separate client with `analytics.edit`.
 
 ### Fixed
 
@@ -46,9 +54,8 @@ configuration, and plan contracts.
   client options before calling Google.
 - Preserve Google's automatic `dateRange` column, distinguish absent report
   metadata, validate quota/row/header shapes, and reject invalid UTF-8 output.
-- Translate pagination and raw socket failures into typed errors, refresh
-  generated clients after ADC login, and reject malformed or cross-property
-  Admin responses.
+- Translate pagination and raw socket failures into typed errors and reject
+  malformed or cross-property Admin responses.
 - Require the literal boolean `true` for Ruby apply confirmation and reject
   non-web, cross-property, or otherwise forged saved-plan payloads.
 - Handle Ctrl-C as clean human or JSON output with exit status 130 instead of
@@ -56,10 +63,11 @@ configuration, and plan contracts.
 
 ### Security
 
-- Setup passes OAuth client paths only to `gcloud`; it never copies
-  credentials into configuration, plans, logs, or output.
-- Setup verifies access before writing configuration, and non-interactive mode
-  never starts a login flow or prompt.
+- Setup validates a bounded service-account key and stores only its canonical
+  path outside the project; keys never enter configuration, plans, logs, or
+  output.
+- Setup verifies access before writing configuration or remembering the key
+  path, and non-interactive mode never prompts.
 - Credential-shaped values are rejected from configuration and plans; JSON
   secret assignments, invalid bytes, and terminal controls are sanitized.
 - Human output is terminal-safe, and CSV formula protection covers headers and

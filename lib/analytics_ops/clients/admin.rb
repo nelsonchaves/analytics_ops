@@ -33,9 +33,15 @@ module AnalyticsOps
         "custom_metrics" => :create_custom_metric
       }.freeze
 
-      def initialize(client: nil, credentials: nil, transport: :grpc, timeout: nil, logger: nil)
+      def initialize(client: nil, service_account: nil, access: :read, transport: :grpc, timeout: nil, logger: nil)
+        unless service_account.nil? || service_account.is_a?(ServiceAccount)
+          raise ConfigurationError, "service_account must be an AnalyticsOps::ServiceAccount"
+        end
+        raise ConfigurationError, "access must be :read or :edit" unless %i[read edit].include?(access)
+
         @client = client
-        @credentials = credentials
+        @service_account = service_account
+        @access = access
         @transport = validate_transport(transport)
         @timeout = validate_timeout(timeout)
         @logger = logger
@@ -147,9 +153,13 @@ module AnalyticsOps
 
       def client
         @client ||= begin
+          unless @service_account
+            raise AuthenticationError, "Analytics Ops requires configured service-account credentials"
+          end
+
           require "google/analytics/admin"
           Google::Analytics::Admin.analytics_admin_service(transport: @transport) do |config|
-            config.credentials = @credentials if @credentials
+            config.credentials = @service_account.__send__(:credentials, access: @access)
             config.timeout = @timeout if @timeout
           end
         end

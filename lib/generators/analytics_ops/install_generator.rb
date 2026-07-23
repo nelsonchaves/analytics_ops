@@ -11,6 +11,8 @@ module AnalyticsOps
       desc "Create config/analytics_ops.yml and bin/analytics-ops"
 
       def copy_configuration
+        return if File.exist?(File.join(destination_root, "config/analytics_ops.yml"))
+
         template "analytics_ops.yml", "config/analytics_ops.yml"
       end
 

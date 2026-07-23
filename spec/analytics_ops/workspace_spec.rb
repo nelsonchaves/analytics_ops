@@ -97,10 +97,10 @@ RSpec.describe AnalyticsOps::Workspace do
     expect(doctor).to be_success
     expect(checks.keys).to include(
       "configuration", "credentials", "admin_api", "data_api", "property_access", "edit_capability",
-      "google-analytics-admin", "google-analytics-data", "local_clock", "oauth_scopes"
+      "google-analytics-admin", "google-analytics-data", "local_clock", "credential_scope"
     )
     expect(checks.dig("edit_capability", "status")).to eq("ok")
-    expect(checks.dig("oauth_scopes", "status")).to eq("unknown")
+    expect(checks.dig("credential_scope", "status")).to eq("ok")
     expect(data).to have_received(:run).with(
       "123456789",
       an_object_having_attributes(name: "doctor_connectivity", limit: 1, kind: "standard")
@@ -113,5 +113,32 @@ RSpec.describe AnalyticsOps::Workspace do
 
     expect { workspace.doctor }.to raise_error(AnalyticsOps::AuthenticationError)
     expect(data).not_to have_received(:run)
+  end
+
+  it "requests edit-scoped service-account credentials only for apply" do
+    service_account = AnalyticsOps::ServiceAccount.allocate
+    edit_adapter = instance_double(AnalyticsOps::Clients::Admin)
+    plan = AnalyticsOps::Plan.new(
+      profile: "production",
+      property_id: "123456789",
+      snapshot_fingerprint: "sha256:#{"0" * 64}",
+      changes: [],
+      findings: []
+    )
+    result = instance_double(AnalyticsOps::Applier::Result)
+    allow(AnalyticsOps::Clients::Admin).to receive(:new).and_return(edit_adapter)
+    allow(AnalyticsOps::Applier).to receive(:new)
+      .with(admin: edit_adapter)
+      .and_return(instance_double(AnalyticsOps::Applier, call: result))
+    edit_workspace = described_class.new(desired_state:, service_account:)
+
+    expect(edit_workspace.apply(plan, confirm: true)).to equal(result)
+    expect(AnalyticsOps::Clients::Admin).to have_received(:new).with(
+      service_account:,
+      access: :edit,
+      transport: :grpc,
+      timeout: nil,
+      logger: nil
+    )
   end
 end

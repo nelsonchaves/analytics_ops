@@ -11,7 +11,7 @@ analytics-ops COMMAND [options]
 ## Fast examples
 
 ```bash
-analytics-ops setup
+analytics-ops setup --service-account /absolute/path/to/service-account.json
 analytics-ops overview
 analytics-ops properties
 analytics-ops doctor
@@ -27,54 +27,50 @@ Only `apply` can write to Google.
 ## Setup
 
 ```bash
+analytics-ops setup --service-account /absolute/path/to/service-account.json
+```
+
+Analytics Ops supports only service-account authentication. On the first run,
+pass the downloaded JSON key explicitly. Setup then:
+
+1. Validates that the file is a Google service-account key.
+2. Lists accessible accounts and properties without loading YAML.
+3. Prompts with numbered choices showing account, property name, and ID.
+4. Proves Admin and Data API read access.
+5. Creates the smallest valid `config/analytics_ops.yml` using the
+   `production` profile.
+6. Stores only the key's absolute path in
+   `~/.config/analytics_ops/connection.json` with mode `0600`.
+7. Prints `analytics-ops overview` as the next command.
+
+Setup never overwrites an existing profile that targets another property. A
+matching file is a successful no-op. The key is never copied into a project or
+printed.
+
+Later setup runs use the remembered path:
+
+```bash
 analytics-ops setup
 ```
 
-Setup first tries the existing Application Default Credentials. If they are
-missing or have insufficient effective Analytics scopes, it invokes Google's
-official `gcloud auth application-default login` command. That command may
-replace local ADC used by other development tools, so setup prints a notice
-before starting it. To avoid Google Cloud CLI and user OAuth entirely, add a
-service account to the GA4 account or property and set
-`GOOGLE_APPLICATION_CREDENTIALS` to its JSON key outside the repository before
-running setup. Setup then:
-
-1. Lists accessible accounts and properties without loading YAML.
-2. Prompts with numbered choices showing account, property name, and ID.
-3. Proves Admin and Data API read access.
-4. Creates the smallest valid `config/analytics_ops.yml` using the
-   `production` profile.
-5. Prints `analytics-ops overview` as the next command.
-
-Setup never overwrites an existing profile that targets another property. A
-matching file is a successful no-op. Use an owned Desktop OAuth client when
-needed:
+Automation uses the same single route with an explicit property:
 
 ```bash
-analytics-ops setup --client-id-file path/to/desktop-oauth.json
+analytics-ops setup \
+  --service-account /secure/path/service-account.json \
+  --property 123456789 \
+  --non-interactive \
+  --json
 ```
 
-For a machine that cannot open a browser:
-
-```bash
-analytics-ops setup --no-launch-browser
-```
-
-Automation never opens a browser or prompts. It requires existing ADC and an
-explicit accessible property:
-
-```bash
-analytics-ops setup --property 123456789 --non-interactive --json
-```
-
-OAuth client files are credential material. They are passed only to `gcloud`;
-Analytics Ops never copies them into configuration, plans, or output.
+The CLI never consults `gcloud`, browser login, Application Default
+Credentials, `GOOGLE_APPLICATION_CREDENTIALS`, or API keys.
 
 ## Commands that do not change GA4
 
 | Command | Result |
 | --- | --- |
-| `setup` | Authenticates if needed, selects a property, verifies both APIs, and writes local configuration; never changes Google Analytics |
+| `setup` | Loads the service account, selects a property, verifies both APIs, and writes local configuration; never changes Google Analytics |
 | `properties` | Lists accessible account and property summaries without configuration or per-property stream calls |
 | `doctor` | Checks the local file, credentials, Admin API, Data API, property access, client versions, edit visibility, and clock |
 | `discover` | Lists accessible account IDs, property IDs, and stream IDs without configuration |
@@ -87,9 +83,8 @@ Analytics Ops never copies them into configuration, plans, or output.
 | `realtime [NAME]` | Runs `realtime_events` by default |
 | `schema` | Prints the version-1 configuration schema |
 
-`doctor` cannot reliably inspect scopes inside an issued Google token. It
-reports that check as unknown and proves effective access with real read-only
-calls instead.
+`doctor` uses the read-only Analytics scope and proves effective access with
+small real calls to both APIs.
 
 ## Apply
 
@@ -126,13 +121,12 @@ plans and applies in one step.
 | `--csv` | Shortcut for `--format csv` |
 | `-o, --output PATH` | Save generated JSON; valid only with `plan` |
 | `--property ID` | Select an accessible property without prompting; setup only |
-| `--client-id-file PATH` | Pass an owned Desktop OAuth client to `gcloud`; setup only |
-| `--no-launch-browser` | Print Google's login URL instead of opening a browser; setup only |
+| `--service-account PATH` | Connect a Google service-account JSON key; setup only |
 | `--transport grpc|rest` | Official Google-client transport |
 | `--timeout SECONDS` | Finite positive API call timeout |
 | `--log-level LEVEL` | Structured request metadata: `debug`, `info`, `warn`, or `error`; default `warn` |
 | `--yes` | Approve every operation in a saved plan; apply only |
-| `--non-interactive` | Never prompt; apply requires `--yes`, setup requires `--property` and existing ADC |
+| `--non-interactive` | Never prompt; apply requires `--yes`, setup requires `--property` |
 
 Unknown arguments, conflicting format flags, and non-finite timeouts fail
 instead of being ignored. CSV is rejected for anything except report results.

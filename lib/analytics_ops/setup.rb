@@ -1,12 +1,8 @@
 # frozen_string_literal: true
 
 module AnalyticsOps
-  # Interactive or automated configuration bootstrap using official Google ADC.
+  # Interactive or automated property selection after service-account loading.
   class Setup
-    ANALYTICS_SCOPES = %w[
-      https://www.googleapis.com/auth/cloud-platform
-      https://www.googleapis.com/auth/analytics.readonly
-    ].freeze
     PROPERTY_ID = /\A\d{1,50}\z/
     PROFILE = /\A[A-Za-z][A-Za-z0-9_]{0,63}\z/
 
@@ -45,46 +41,21 @@ module AnalyticsOps
       end
     end
 
-    # Small injectable boundary around the official authentication subprocess.
-    class SystemCommandRunner
-      def available?(command)
-        ENV.fetch("PATH", "").split(File::PATH_SEPARATOR).any? do |path|
-          candidate = File.join(path, command)
-          File.file?(candidate) && File.executable?(candidate)
-        end
-      end
-
-      def run(arguments, input:, out:, err:)
-        Kernel.system(*arguments, in: input, out:, err:)
-      rescue SystemCallError
-        false
-      end
-    end
-    private_constant :SystemCommandRunner
-
     def initialize(connection:, config:, profile:, property_id: nil, noninteractive: false,
-                   client_id_file: nil, no_launch_browser: false, input: $stdin, out: $stdout,
-                   err: $stderr, command_runner: nil)
+                   input: $stdin, out: $stdout)
       validate_options!(
         config:,
         profile:,
         property_id:,
-        noninteractive:,
-        client_id_file:,
-        no_launch_browser:
+        noninteractive:
       )
       @connection = connection
       @config = config
       @profile = profile.to_s
       @property_id = property_id
       @noninteractive = noninteractive
-      @client_id_file = client_id_file
-      @no_launch_browser = no_launch_browser
       @input = input
       @out = out
-      @err = err
-      @command_runner = command_runner || SystemCommandRunner.new
-      @attempted_authentication = false
     end
 
     def call
@@ -105,14 +76,12 @@ module AnalyticsOps
 
     private
 
-    def validate_options!(config:, profile:, property_id:, noninteractive:, client_id_file:, no_launch_browser:)
+    def validate_options!(config:, profile:, property_id:, noninteractive:)
       validate_config_path!(config)
       validate_profile!(profile)
       validate_property_id!(property_id)
-      validate_boolean_options!(noninteractive, no_launch_browser)
+      validate_boolean_option!(noninteractive)
       raise ConfigurationError, "Non-interactive setup requires a property ID" if noninteractive && !property_id
-
-      validate_client_id_file!(client_id_file)
     end
 
     def validate_config_path!(config)
@@ -132,88 +101,18 @@ module AnalyticsOps
       raise ConfigurationError, "Setup property must be a numeric GA4 property ID"
     end
 
-    def validate_boolean_options!(noninteractive, no_launch_browser)
-      valid = [true, false].include?(noninteractive) && [true, false].include?(no_launch_browser)
-      return if valid
+    def validate_boolean_option!(noninteractive)
+      return if [true, false].include?(noninteractive)
 
       raise ConfigurationError, "Setup boolean options must be true or false"
     end
 
-    def validate_client_id_file!(client_id_file)
-      return if client_id_file.nil? || (client_id_file.is_a?(String) && File.file?(client_id_file))
-
-      raise ConfigurationError, "Desktop OAuth client file does not exist"
-    end
-
     def google_call
       yield
-    rescue AuthenticationError
-      raise if @attempted_authentication
-
-      authenticate_for_setup!
-      @attempted_authentication = true
-      retry
-    rescue AuthorizationError => error
-      raise_disabled_api! if api_disabled?(error)
-      raise unless insufficient_scope?(error) && !@attempted_authentication
-
-      authenticate_for_setup!
-      @attempted_authentication = true
-      retry
-    rescue InvalidRequestError, RemoteError => error
+    rescue AuthorizationError, InvalidRequestError, RemoteError => error
       raise_disabled_api! if api_disabled?(error)
 
       raise
-    end
-
-    def authenticate_for_setup!
-      if @noninteractive
-        raise AuthenticationError,
-              "No usable Application Default Credentials. Set GOOGLE_APPLICATION_CREDENTIALS to a service-account " \
-              "JSON file, or run `#{authentication_command}`."
-      end
-      unless @command_runner.available?("gcloud")
-        raise UnsupportedCapabilityError,
-              "Interactive user login requires Google Cloud CLI. For no-CLI setup, set " \
-              "GOOGLE_APPLICATION_CREDENTIALS to a service-account JSON file. On macOS install the CLI with " \
-              "`brew install --cask gcloud-cli`; otherwise visit https://cloud.google.com/sdk/docs/install."
-      end
-
-      @out.puts "Google login is required. Analytics Ops will run the official gcloud ADC command."
-      @out.puts "This may replace the local ADC credentials used by other development tools."
-      @out.puts "If Google shows 'This app is blocked', cancel and use an owned Desktop OAuth client with " \
-                "--client-id-file PATH."
-      succeeded = @command_runner.run(authentication_arguments, input: @input, out: @out, err: @err)
-      if succeeded
-        @connection.reload_credentials!
-        return
-      end
-
-      raise AuthenticationError,
-            "Google ADC login did not complete. If Google blocked the Analytics scope, create a Desktop OAuth " \
-            "client and retry with --client-id-file PATH, or use a service account through " \
-            "GOOGLE_APPLICATION_CREDENTIALS. For a headless session, add --no-launch-browser."
-    end
-
-    def authentication_arguments
-      arguments = [
-        "gcloud", "auth", "application-default", "login",
-        "--scopes=#{ANALYTICS_SCOPES.join(",")}"
-      ]
-      arguments << "--client-id-file=#{@client_id_file}" if @client_id_file
-      arguments << "--no-launch-browser" if @no_launch_browser
-      arguments
-    end
-
-    def authentication_command
-      command = "gcloud auth application-default login --scopes=\"#{ANALYTICS_SCOPES.join(",")}\""
-      command += " --client-id-file=YOUR_DESKTOP_OAUTH_CLIENT.json" if @client_id_file
-      command += " --no-launch-browser" if @no_launch_browser
-      command
-    end
-
-    def insufficient_scope?(error)
-      error.message.match?(/insufficient.*scope|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i)
     end
 
     def api_disabled?(error)
@@ -222,8 +121,8 @@ module AnalyticsOps
 
     def raise_disabled_api!
       raise RemoteError,
-            "Google Analytics APIs appear disabled. Run `gcloud services enable " \
-            "analyticsadmin.googleapis.com analyticsdata.googleapis.com --project YOUR_GOOGLE_CLOUD_PROJECT`."
+            "Google Analytics APIs appear disabled. Enable Google Analytics Admin API and " \
+            "Google Analytics Data API in the Google Cloud project that owns the service account."
     end
 
     def select_property(accounts)

@@ -23,22 +23,17 @@ module AnalyticsOps
       end
     end
 
-    def initialize(admin: nil, data: nil, credentials: nil, transport: :grpc, timeout: nil, logger: nil)
-      @injected_admin = admin
-      @injected_data = data
+    def initialize(admin: nil, data: nil, service_account: nil, transport: :grpc, timeout: nil, logger: nil)
+      unless service_account.nil? || service_account.is_a?(ServiceAccount)
+        raise ConfigurationError, "service_account must be an AnalyticsOps::ServiceAccount"
+      end
+
       @admin = admin
       @data = data
-      @credentials = credentials
+      @service_account = service_account
       @transport = transport
       @timeout = timeout
       @logger = logger
-    end
-
-    # Rebuilds generated clients so a just-completed external ADC login is visible immediately.
-    def reload_credentials!
-      @admin = @injected_admin
-      @data = @injected_data
-      self
     end
 
     def discover
@@ -63,7 +58,8 @@ module AnalyticsOps
 
     def admin
       @admin ||= Clients::Admin.new(
-        credentials: @credentials,
+        service_account:,
+        access: :read,
         transport: @transport,
         timeout: @timeout,
         logger: @logger
@@ -72,11 +68,15 @@ module AnalyticsOps
 
     def data
       @data ||= Clients::Data.new(
-        credentials: @credentials,
+        service_account:,
         transport: @transport,
         timeout: @timeout,
         logger: @logger
       )
+    end
+
+    def service_account
+      @service_account ||= ServiceAccount.load
     end
 
     def connectivity_definition

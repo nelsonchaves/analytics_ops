@@ -27,6 +27,11 @@ RSpec.describe AnalyticsOps::Clients::Data do
   let(:client) { double("GoogleDataClient") }
   let(:adapter) { described_class.new(client:) }
 
+  it "refuses ambient credential discovery when no service-account credentials are provided" do
+    expect { described_class.new.available? }
+      .to raise_error(AnalyticsOps::AuthenticationError, /service-account credentials/)
+  end
+
   it "translates a standard definition and normalizes the generated response" do
     request = nil
     allow(client).to receive(:run_report) do |value|
@@ -294,6 +299,8 @@ RSpec.describe AnalyticsOps::Clients::Data do
       .to raise_error(AnalyticsOps::ConfigurationError, /transport/)
     expect { described_class.new(client:, timeout: -1) }
       .to raise_error(AnalyticsOps::ConfigurationError, /timeout/)
+    expect { described_class.new(client:, service_account: Object.new) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /AnalyticsOps::ServiceAccount/)
     expect { adapter.run(123_456_789, standard_definition) }
       .to raise_error(AnalyticsOps::ConfigurationError, /property ID/)
   end

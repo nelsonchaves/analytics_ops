@@ -9,6 +9,7 @@ second HTTP stack and does not expose generated Google objects publicly.
 | --- | --- | --- |
 | `google-analytics-admin` | `~> 0.8.0` | 0.8.0 |
 | `google-analytics-data` | `~> 0.9.0` | 0.9.0 |
+| `googleauth` | `~> 1.12` | 1.17.1 |
 
 The reviewed lockfile resolves these generated transports:
 
@@ -22,10 +23,10 @@ transport name does not make every feature Alpha: Google publishes feature
 maturity separately. Analytics Ops treats capabilities Google identifies as
 Alpha as experimental or unsupported.
 
-The pessimistic direct bounds allow reviewed patch updates inside each minor
-line and reject a new minor contract automatically. `doctor` reports the
-installed direct versions, expected bounds, and selected `grpc` or `rest`
-transport.
+The API-wrapper bounds allow reviewed patch updates inside each minor line and
+reject a new minor contract automatically. The `googleauth` bound stays within
+its compatible 1.x public API. `doctor` reports the installed Admin and Data
+wrapper versions, expected bounds, and selected `grpc` or `rest` transport.
 
 ## Executable contract coverage
 
@@ -45,7 +46,9 @@ protobuf classes for:
 - `run_report`, `batch_run_reports`, and `run_realtime_report`
 
 The tests also prove enum mappings and normalization into immutable gem-owned
-values without making network requests.
+values without making network requests. Service-account tests exercise the
+official `Google::Auth::ServiceAccountCredentials` loader with generated fake
+keys and verify the exact read/edit scopes.
 
 ## Updating a Google client
 

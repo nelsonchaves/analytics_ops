@@ -29,8 +29,8 @@ do not wait for a project response.
 
 Analytics Ops:
 
-- uses Application Default Credentials or an explicitly injected Google
-  credential object
+- uses only an explicit Google service-account key and never discovers
+  ambient credentials
 - refuses credential-shaped configuration and plan fields or values
 - redacts common authorization material from translated errors
 - performs no network I/O while requiring the gem, loading YAML, or booting
@@ -40,7 +40,7 @@ Analytics Ops:
 - rejects stale and cross-property plans
 - excludes delete/archive operations from ordinary plans
 - never logs report results automatically
-- has no telemetry, credential store, database, or browser injection
+- has no telemetry, private-key/token store, database, or browser injection
 - publishes through RubyGems Trusted Publishing without a stored API key
 
 Plan files still describe operational configuration and are created with mode
@@ -51,6 +51,6 @@ under the operator's data policy.
 
 Analytics Ops cannot secure an overprivileged Cloud project, service account,
 GitHub organization, CI runner, GA property, or exported report. Use
-least-privilege read credentials for routine work, isolate mutation
-credentials, protect release environments, and keep production mutation
-credentials out of Rails web containers.
+Viewer access when an installation only reports or audits; grant Editor only
+when reviewed applies are required. Protect release environments and keep
+production mutation credentials out of Rails web containers.

@@ -26,7 +26,8 @@ mounted read-only except for source edits.
 ## Design rules
 
 - Keep the core plain Ruby and independent of Rails and Active Support.
-- Use Google's official Ruby clients; do not add another HTTP or OAuth stack.
+- Use Google's official Ruby clients and the service-account-only contract; do
+  not add another HTTP or authentication stack.
 - Keep generated Google objects behind adapters.
 - Do not introduce telemetry, a database, browser analytics, or boot-time
   network access.

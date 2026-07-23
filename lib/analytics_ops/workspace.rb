@@ -42,17 +42,23 @@ module AnalyticsOps
 
     attr_reader :desired_state
 
-    def self.load(path, profile:, environment: ENV, admin: nil, data: nil, credentials: nil,
+    def self.load(path, profile:, environment: ENV, admin: nil, data: nil, service_account: nil,
                   transport: :grpc, timeout: nil, logger: nil)
       document = Configuration.load(path, environment:)
-      new(desired_state: document.profile(profile), admin:, data:, credentials:, transport:, timeout:, logger:)
+      new(desired_state: document.profile(profile), admin:, data:, service_account:, transport:, timeout:, logger:)
     end
 
-    def initialize(desired_state:, admin: nil, data: nil, credentials: nil, transport: :grpc, timeout: nil, logger: nil)
+    def initialize(desired_state:, admin: nil, data: nil, service_account: nil,
+                   transport: :grpc, timeout: nil, logger: nil)
+      unless service_account.nil? || service_account.is_a?(ServiceAccount)
+        raise ConfigurationError, "service_account must be an AnalyticsOps::ServiceAccount"
+      end
+
       @desired_state = desired_state
       @admin = admin
+      @injected_admin = admin
       @data = data
-      @credentials = credentials
+      @service_account = service_account
       @transport = transport
       @timeout = timeout
       @logger = logger
@@ -77,7 +83,7 @@ module AnalyticsOps
     def apply(plan_or_path, confirm: false)
       saved_plan = plan_or_path.is_a?(Plan) ? plan_or_path : Plan.load(plan_or_path)
       validate_plan_target!(saved_plan)
-      Applier.new(admin:).call(saved_plan, confirm:)
+      Applier.new(admin: edit_admin).call(saved_plan, confirm:)
     end
 
     def verify
@@ -103,7 +109,8 @@ module AnalyticsOps
       remote = snapshot
       checks = [
         { "name" => "configuration", "status" => "ok", "detail" => "Profile #{desired_state.profile} is valid" },
-        { "name" => "credentials", "status" => "ok", "detail" => "Google accepted discovered or injected credentials" },
+        { "name" => "credentials", "status" => "ok",
+          "detail" => "Google accepted the configured service-account credentials" },
         { "name" => "admin_api", "status" => "ok", "detail" => "Admin API read succeeded" },
         { "name" => "property_access", "status" => "ok", "detail" => "Read properties/#{remote.property_id}" }
       ]
@@ -113,9 +120,9 @@ module AnalyticsOps
       data.run(desired_state.property_id, doctor_report_definition)
       checks << { "name" => "data_api", "status" => "ok", "detail" => "Data API read succeeded" }
       checks << {
-        "name" => "oauth_scopes",
-        "status" => "unknown",
-        "detail" => "Installed Google clients do not expose a reliable token-scope inspection contract"
+        "name" => "credential_scope",
+        "status" => "ok",
+        "detail" => "This read-only command uses the Analytics read-only scope"
       }
       admin.capabilities.each do |name, available|
         checks << {
@@ -131,7 +138,8 @@ module AnalyticsOps
 
     def admin
       @admin ||= Clients::Admin.new(
-        credentials: @credentials,
+        service_account:,
+        access: :read,
         transport: @transport,
         timeout: @timeout,
         logger: @logger
@@ -140,11 +148,27 @@ module AnalyticsOps
 
     def data
       @data ||= Clients::Data.new(
-        credentials: @credentials,
+        service_account:,
         transport: @transport,
         timeout: @timeout,
         logger: @logger
       )
+    end
+
+    def edit_admin
+      return @injected_admin if @injected_admin
+
+      @edit_admin ||= Clients::Admin.new(
+        service_account:,
+        access: :edit,
+        transport: @transport,
+        timeout: @timeout,
+        logger: @logger
+      )
+    end
+
+    def service_account
+      @service_account ||= ServiceAccount.load
     end
 
     def compatibility_checks

@@ -7,6 +7,11 @@ RSpec.describe AnalyticsOps::Clients::Admin do
   let(:client) { double("GoogleAdminClient") }
   let(:adapter) { described_class.new(client:) }
 
+  it "refuses ambient credential discovery when no service-account credentials are provided" do
+    expect { described_class.new.capabilities }
+      .to raise_error(AnalyticsOps::AuthenticationError, /service-account credentials/)
+  end
+
   def change(resource_type:, operation:, identity:, before:, after:)
     AnalyticsOps::Plan::Change.new(
       resource_type:,
@@ -289,6 +294,10 @@ RSpec.describe AnalyticsOps::Clients::Admin do
       .to raise_error(AnalyticsOps::ConfigurationError, /transport/)
     expect { described_class.new(client:, timeout: 0) }
       .to raise_error(AnalyticsOps::ConfigurationError, /timeout/)
+    expect { described_class.new(client:, service_account: Object.new) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /AnalyticsOps::ServiceAccount/)
+    expect { described_class.new(client:, access: :unknown) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /:read or :edit/)
     expect { adapter.snapshot(123_456_789) }
       .to raise_error(AnalyticsOps::ConfigurationError, /property ID/)
   end

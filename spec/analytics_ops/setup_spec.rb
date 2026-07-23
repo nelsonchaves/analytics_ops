@@ -108,7 +108,7 @@ RSpec.describe AnalyticsOps::Setup do
       ).call
     end.to raise_error(
       AnalyticsOps::RemoteError,
-      /gcloud services enable analyticsadmin\.googleapis\.com analyticsdata\.googleapis\.com/
+      /Enable Google Analytics Admin API and Google Analytics Data API/
     )
   end
 end

@@ -8,9 +8,16 @@ require "tmpdir"
 require "analytics_ops/cli"
 
 RSpec.describe AnalyticsOps::CLI do
-  def run(*arguments, workspace_loader: nil, connection_loader: nil, command_runner: nil, input: StringIO.new)
+  def run(*arguments, workspace_loader: nil, connection_loader: nil, service_account_loader: nil,
+          service_account_store: nil, input: StringIO.new)
     out = StringIO.new
     err = StringIO.new
+    service_account = instance_double(
+      AnalyticsOps::ServiceAccount,
+      path: "/tmp/obviously-fake-service-account.json"
+    )
+    service_account_loader ||= ->(**_options) { service_account }
+    service_account_store ||= double("ServiceAccountStore", write: nil)
     status = described_class.start(
       arguments,
       out:,
@@ -18,7 +25,8 @@ RSpec.describe AnalyticsOps::CLI do
       input:,
       workspace_loader:,
       connection_loader:,
-      command_runner:
+      service_account_loader:,
+      service_account_store:
     )
 
     [status, out.string, err.string]
@@ -53,7 +61,8 @@ RSpec.describe AnalyticsOps::CLI do
     status, out, err = run("help")
 
     expect(status).to eq(AnalyticsOps::CLI::SUCCESS)
-    expect(out).to include("Google Analytics 4 configuration as code")
+    expect(out).to include("Google Analytics 4 configuration as code", "--service-account PATH")
+    expect(out).not_to include("--client-id-file", "--no-launch-browser")
     expect(err).to be_empty
   end
 
@@ -175,97 +184,75 @@ RSpec.describe AnalyticsOps::CLI do
     end
   end
 
-  it "runs official gcloud authentication once and retries setup" do
-    connection = instance_double(AnalyticsOps::Connection)
-    calls = 0
-    allow(connection).to receive(:properties) do
-      calls += 1
-      raise AnalyticsOps::AuthenticationError, "credentials unavailable" if calls == 1
-
-      [discovered_account]
-    end
-    allow(connection).to receive(:reload_credentials!).and_return(connection)
+  it "loads and remembers an explicit service account only after successful setup" do
+    connection = instance_double(AnalyticsOps::Connection, properties: [discovered_account])
     allow(connection).to receive(:verify)
       .with("123456789")
       .and_return(AnalyticsOps::Connection::Verification.new(property:))
-    runner = double("CommandRunner", available?: true, run: true)
 
     Dir.mktmpdir("analytics-ops-cli") do |directory|
-      client_id_file = File.join(directory, "desktop-oauth.json")
-      File.write(client_id_file, "{}")
+      key_path = File.join(directory, "service-account.json")
+      File.write(key_path, "{}")
+      service_account = instance_double(AnalyticsOps::ServiceAccount, path: key_path)
+      loader = double("ServiceAccountLoader", call: service_account)
+      store = double("ServiceAccountStore", write: nil)
       status, output, error = run(
         "setup", "--property", "123456789", "--config", File.join(directory, "analytics_ops.yml"),
-        "--client-id-file", client_id_file, "--no-launch-browser",
-        connection_loader: loader_for(connection), command_runner: runner
+        "--service-account", key_path,
+        connection_loader: loader_for(connection),
+        service_account_loader: loader,
+        service_account_store: store
       )
 
       expect(status).to eq(described_class::SUCCESS)
-      expect(output).to include(
-        "official gcloud ADC command",
-        "replace the local ADC credentials",
-        "This app is blocked",
-        "--client-id-file PATH"
-      )
+      expect(output).to include("Connected production", "Next: analytics-ops overview")
       expect(error).to be_empty
-      expect(runner).to have_received(:run) do |arguments, **_streams|
-        expect(arguments).to include(
-          "gcloud",
-          "--client-id-file=#{client_id_file}",
-          "--no-launch-browser",
-          a_string_including("analytics.readonly")
-        )
-      end
-      expect(connection).to have_received(:reload_credentials!).once
+      expect(loader).to have_received(:call).with(path: key_path, store:)
+      expect(store).to have_received(:write).with(key_path).once
     end
   end
 
-  it "does not invoke login during non-interactive setup" do
-    connection = instance_double(AnalyticsOps::Connection)
-    allow(connection).to receive(:properties).and_raise(AnalyticsOps::AuthenticationError, "credentials unavailable")
-    runner = double("CommandRunner")
-    allow(runner).to receive(:available?)
-    allow(runner).to receive(:run)
+  it "returns authentication status when no service account has been configured" do
+    loader = double("ServiceAccountLoader")
+    allow(loader).to receive(:call).and_raise(
+      AnalyticsOps::AuthenticationError,
+      "No service account is configured; run analytics-ops setup --service-account PATH"
+    )
 
     status, output, error = run(
       "setup", "--property", "123456789", "--non-interactive",
-      connection_loader: loader_for(connection), command_runner: runner
+      service_account_loader: loader
     )
 
     expect(status).to eq(described_class::AUTHENTICATION_ERROR)
     expect(output).to be_empty
-    expect(error).to include("GOOGLE_APPLICATION_CREDENTIALS", "gcloud auth application-default login")
-    expect(runner).not_to have_received(:available?)
-    expect(runner).not_to have_received(:run)
+    expect(error).to include("No service account is configured", "setup --service-account")
   end
 
-  it "returns the existing unsupported status when gcloud is unavailable" do
-    connection = instance_double(AnalyticsOps::Connection)
-    allow(connection).to receive(:properties).and_raise(AnalyticsOps::AuthenticationError, "credentials unavailable")
-    runner = double("CommandRunner", available?: false)
+  it "rejects removed OAuth and gcloud setup options" do
+    client_status, = run("setup", "--client-id-file", "/tmp/desktop.json")
+    browser_status, = run("setup", "--no-launch-browser")
+
+    expect(client_status).to eq(described_class::USAGE_ERROR)
+    expect(browser_status).to eq(described_class::USAGE_ERROR)
+  end
+
+  it "does not remember a service account when property verification fails" do
+    connection = instance_double(AnalyticsOps::Connection, properties: [discovered_account])
+    allow(connection).to receive(:verify).and_raise(AnalyticsOps::AuthorizationError, "Property access denied")
+    store = double("ServiceAccountStore")
+    allow(store).to receive(:write)
 
     status, output, error = run(
       "setup", "--property", "123456789",
-      connection_loader: loader_for(connection), command_runner: runner
+      connection_loader: loader_for(connection),
+      service_account_store: store
     )
 
-    expect(status).to eq(described_class::UNSUPPORTED)
+    expect(status).to eq(described_class::AUTHORIZATION_ERROR)
     expect(output).to be_empty
-    expect(error).to include("Interactive user login requires Google Cloud CLI", "GOOGLE_APPLICATION_CREDENTIALS")
-  end
-
-  it "explains the owned-client and headless fallbacks when Google login fails" do
-    connection = instance_double(AnalyticsOps::Connection)
-    allow(connection).to receive(:properties).and_raise(AnalyticsOps::AuthenticationError, "credentials unavailable")
-    runner = double("CommandRunner", available?: true, run: false)
-
-    status, output, error = run(
-      "setup", "--property", "123456789",
-      connection_loader: loader_for(connection), command_runner: runner
-    )
-
-    expect(status).to eq(described_class::AUTHENTICATION_ERROR)
-    expect(output).to include("Google login is required")
-    expect(error).to include("--client-id-file PATH", "GOOGLE_APPLICATION_CREDENTIALS", "--no-launch-browser")
+    expect(error).to include("Property access denied")
+    expect(store).not_to have_received(:write)
   end
 
   it "handles Ctrl-C without a Ruby backtrace in human or JSON output" do
@@ -301,7 +288,11 @@ RSpec.describe AnalyticsOps::CLI do
 
     expect(status).to eq(described_class::REMOTE_ERROR)
     expect(output).to be_empty
-    expect(error).to include("gcloud services enable", "analyticsadmin.googleapis.com", "analyticsdata.googleapis.com")
+    expect(error).to include(
+      "Google Analytics Admin API",
+      "Google Analytics Data API",
+      "service account"
+    )
   end
 
   it "renders report results as human, JSON, and safe CSV output" do
@@ -458,6 +449,7 @@ RSpec.describe AnalyticsOps::CLI do
     expect(run("audit", "--yes").first).to eq(described_class::USAGE_ERROR)
     expect(run("verify", "--output", "plan.json").first).to eq(described_class::USAGE_ERROR)
     expect(run("doctor", "--timeout", "Infinity").first).to eq(described_class::USAGE_ERROR)
+    expect(run("doctor", "--service-account", __FILE__).first).to eq(described_class::USAGE_ERROR)
   end
 
   it "never prompts for non-interactive apply and requires --yes" do

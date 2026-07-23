@@ -14,6 +14,9 @@ Active Support.
 
 ```bash
 bundle install
+bundle exec analytics-ops setup \
+  --profile development \
+  --service-account /absolute/path/to/service-account.json
 bin/rails generate analytics_ops:install
 ```
 
@@ -21,6 +24,9 @@ The generator creates only:
 
 - `config/analytics_ops.yml`
 - `bin/analytics-ops` with executable mode
+
+If setup already created the configuration, the generator preserves it and
+adds only the binstub. It never asks to overwrite the selected property.
 
 The generated file has a minimal `development` profile and a fake-safe
 property-ID placeholder. It contains no active stream, retention, key-event,

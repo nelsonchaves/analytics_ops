@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "fileutils"
 require "tmpdir"
 
 begin
@@ -45,6 +46,26 @@ RSpec.describe "optional Rails integration" do
       expect(document.profile("development").streams).to be_empty
       expect(File.stat(executable).mode & 0o777).to eq(0o755)
       expect(File.read(configuration)).not_to match(/private_key|access_token|client_secret/)
+    end
+  end
+
+  it "preserves configuration created by service-account setup" do
+    Dir.mktmpdir do |directory|
+      configuration = File.join(directory, "config/analytics_ops.yml")
+      FileUtils.mkdir_p(File.dirname(configuration))
+      File.write(configuration, <<~YAML)
+        version: 1
+        profiles:
+          development:
+            property_id: "123456789"
+      YAML
+
+      generator = AnalyticsOps::Generators::InstallGenerator.new([], {}, destination_root: directory)
+      generator.invoke_all
+
+      expect(AnalyticsOps::Configuration.load(configuration).profile("development").property_id)
+        .to eq("123456789")
+      expect(File).to exist(File.join(directory, "bin/analytics-ops"))
     end
   end
 

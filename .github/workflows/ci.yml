@@ -91,7 +91,7 @@ jobs:
           bundler-cache: true
       - name: Allow the compatibility job to refresh its temporary lockfile
         run: bundle config unset deployment
-      - run: bundle update google-analytics-admin google-analytics-admin-v1alpha google-analytics-data google-analytics-data-v1beta
+      - run: bundle update google-analytics-admin google-analytics-admin-v1alpha google-analytics-data google-analytics-data-v1beta googleauth
       - run: bundle exec rspec spec/analytics_ops/clients
 
   package:

@@ -7,7 +7,7 @@ For the normal first run, let setup create the file after you choose a
 property:
 
 ```bash
-analytics-ops setup
+analytics-ops setup --service-account /absolute/path/to/service-account.json
 ```
 
 Setup writes only a quoted property ID under the `production` profile. It

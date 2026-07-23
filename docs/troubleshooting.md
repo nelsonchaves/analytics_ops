@@ -3,8 +3,8 @@
 Start with:
 
 ```bash
+analytics-ops setup --service-account /absolute/path/to/service-account.json
 analytics-ops properties
-analytics-ops setup
 analytics-ops doctor --json
 ```
 
@@ -41,46 +41,33 @@ Analytics Ops will not guess. User-data retention accepts only `2_months` or
 
 ## Authentication failure (exit 66)
 
-Use a service account without installing a CLI, run interactive setup, or
-create user ADC again. In every case, ensure both APIs are enabled:
+Analytics Ops could not load or use the configured service account.
 
 ```bash
-# No-CLI service-account route
-export GOOGLE_APPLICATION_CREDENTIALS="/absolute/path/outside/repositories/analytics-ops-reader.json"
-analytics-ops setup
-
-# User OAuth route
-analytics-ops setup
-
-# Manual equivalent
-gcloud auth application-default login \
-  --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/analytics.readonly"
+analytics-ops setup \
+  --service-account /absolute/path/outside/repositories/service-account.json
 ```
 
-If `GOOGLE_APPLICATION_CREDENTIALS` is set, confirm that it points to the
-intended local credential file. Never add that path or file to configuration
-or source control.
+Check that:
 
-If interactive setup exits 78 because `gcloud` is unavailable, install the
-[Google Cloud CLI](https://cloud.google.com/sdk/docs/install). On macOS with
-Homebrew:
+- the file still exists at that path
+- it is a JSON key whose `type` is `service_account`
+- the key has not been revoked in Google Cloud
+- the Analytics Admin and Data APIs are enabled in its Cloud project
+- the service-account email is added in GA4 Access Management
 
-```bash
-brew install --cask gcloud-cli
-```
+The saved pointer is `~/.config/analytics_ops/connection.json`. It contains
+only the key path. Rerunning setup with `--service-account` safely replaces
+that pointer after API verification succeeds.
 
-For a headless session, run `analytics-ops setup --no-launch-browser`. If an
-owned Desktop OAuth client is required, pass it with `--client-id-file` and
-never commit the downloaded JSON. If Google shows **This app is blocked** for
-the shared client, repeating plain setup will not help; use an owned Desktop
-client or the no-CLI service-account route. See the
-[live smoke-test guide](live-smoke-test.md).
+Analytics Ops does not fall back to `gcloud`, browser login, Application
+Default Credentials, `GOOGLE_APPLICATION_CREDENTIALS`, or API keys.
 
 ## Permission failure (exit 77)
 
-The Google identity needs access inside the GA4 property. Cloud IAM alone is
-not enough. Add the user or service-account identity to the property with a
-read role; use an edit-capable role only for plan application.
+The service-account identity needs access inside the GA4 property. Cloud IAM
+alone is not enough. Add its email to GA4 Access Management with Viewer for
+reads or Editor for plan application.
 
 Use `analytics-ops properties` to see accessible numeric property IDs without
 creating configuration. `discover` additionally retrieves streams.
@@ -92,9 +79,8 @@ credential's Cloud project. Check the configuration ID and the error's typed
 message. Invalid dimensions, metrics, custom definitions, or property
 restrictions can also produce this status.
 
-When setup recognizes disabled APIs, it prints the exact `gcloud services
-enable` command. Replace `YOUR_GOOGLE_CLOUD_PROJECT` with the project that
-owns the quota or Desktop OAuth client.
+When setup recognizes disabled APIs, enable both APIs in the Google Cloud
+project that owns the service account.
 
 ## Quota (exit 75) or timeout (exit 74)
 
