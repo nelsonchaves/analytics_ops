@@ -48,6 +48,10 @@ configuration, and plan contracts.
 
 ### Fixed
 
+- Keep empty rows for dimensionless standard reports so overview totals retain
+  their metric headers on a new or empty GA4 property.
+- Use only Google's compatible `eventCount` metric in the built-in
+  `realtime_events` recipe.
 - Reject duplicate or excessively nested YAML, impossible user-retention
   periods, Google-invalid custom-definition display names, oversized stream
   URIs, reversed report dates, malformed numeric filters, and non-finite

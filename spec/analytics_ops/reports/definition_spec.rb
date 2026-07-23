@@ -33,6 +33,7 @@ RSpec.describe AnalyticsOps::Reports::Definition do
       "realtime_events"
     )
     expect(AnalyticsOps::Reports::Catalog::DEFINITIONS.values).to all(be_frozen)
+    expect(AnalyticsOps::Reports::Catalog.fetch("realtime_events").metrics).to eq(["eventCount"])
   end
 
   it "keeps canonical recipe names while accepting friendly aliases" do

@@ -79,7 +79,7 @@ module AnalyticsOps
           name: "realtime_events",
           kind: "realtime",
           dimensions: %w[eventName],
-          metrics: %w[eventCount activeUsers],
+          metrics: %w[eventCount],
           order_bys: [{ "metric" => "eventCount", "desc" => true }],
           limit: 100
         )

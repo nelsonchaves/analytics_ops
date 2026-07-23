@@ -108,7 +108,7 @@ module AnalyticsOps
       end
 
       def standard_request(property_id, definition)
-        common_request(property_id, definition).merge(
+        request = common_request(property_id, definition).merge(
           offset: definition.offset,
           date_ranges: definition.date_ranges.map do |range|
             {
@@ -118,6 +118,8 @@ module AnalyticsOps
             }.compact
           end
         )
+        request[:keep_empty_rows] = true if definition.dimensions.empty?
+        request
       end
 
       def realtime_request(property_id, definition)

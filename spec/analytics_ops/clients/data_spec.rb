@@ -47,6 +47,7 @@ RSpec.describe AnalyticsOps::Clients::Data do
       metrics: [{ name: "eventCount" }, { name: "totalUsers" }],
       return_property_quota: true
     )
+    expect(request).not_to have_key(:keep_empty_rows)
     expect(request.dig(:dimension_filter, :filter, :string_filter, :match_type)).to eq(:EXACT)
     expect(result.rows).to eq(
       [{
@@ -67,7 +68,7 @@ RSpec.describe AnalyticsOps::Clients::Data do
       request = value
       {
         dimension_headers: [{ name: "eventName" }],
-        metric_headers: [{ name: "eventCount" }, { name: "activeUsers" }],
+        metric_headers: [{ name: "eventCount" }],
         rows: [],
         row_count: 0
       }
@@ -77,6 +78,7 @@ RSpec.describe AnalyticsOps::Clients::Data do
 
     expect(request).not_to have_key(:date_ranges)
     expect(request).not_to have_key(:offset)
+    expect(request.fetch(:metrics)).to eq([{ name: "eventCount" }])
     expect(result.kind).to eq("realtime")
     expect(result.metadata).to eq({})
   end
@@ -133,6 +135,7 @@ RSpec.describe AnalyticsOps::Clients::Data do
     expect(request.property).to eq("properties/123456789")
     expect(request.requests.length).to eq(5)
     expect(request.requests).to all(have_attributes(property: "", return_property_quota: true))
+    expect(request.requests.map(&:keep_empty_rows)).to eq([true, false, false, false, false])
     expect(results.map(&:name)).to eq(definitions.map(&:name))
     expect(results.last.metadata.dig("property_quota", "tokens_per_day", "remaining")).to eq(199_995)
   end

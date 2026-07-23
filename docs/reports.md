@@ -17,7 +17,7 @@ All standard recipes cover the previous 28 complete days
 | `shares_and_prints` | Share and print events by calculator | `customEvent:calculator_slug` |
 | `related_calculator_navigation` | Related-calculator clicks by source and destination | `customEvent:calculator_slug`, `customEvent:related_calculator_slug` |
 | `commercial_outbound_clicks` | Commercial outbound clicks by calculator and destination | `customEvent:calculator_slug`, `customEvent:outbound_destination` |
-| `realtime_events` | Event count and active users by event name | None |
+| `realtime_events` | Event count by event name | None |
 
 The CLI also accepts `traffic` as an alias for `traffic_acquisition` and
 `landing-pages` as an alias for `landing_pages`. Canonical names remain in
@@ -57,6 +57,13 @@ Each subreport has a small row limit, and Google property-quota information is
 preserved when returned. Batching reduces network round trips; it does not
 make the underlying report work quota-free. CSV is intentionally unavailable
 for this multi-report result. Use `--json` for structured overview output.
+
+The dimensionless totals request keeps empty rows so a brand-new property
+still returns the expected metric headers.
+
+The realtime recipe intentionally requests only `eventCount` with
+`eventName`. Google does not allow `activeUsers` with that dimension. Realtime
+is a short-lived event check rather than a complete user report.
 
 ## Ruby
 

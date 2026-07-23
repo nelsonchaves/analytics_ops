@@ -27,22 +27,198 @@ command works without another authentication option. You do not need
 traffic acquisition, landing pages, and devices for the previous 28 complete
 days. Both commands are read-only in Google Analytics.
 
-See the [live read-only smoke-test guide](docs/live-smoke-test.md) for the
-complete Google setup and a safe real-app release test.
+## Google Analytics setup (first time only)
 
-To use Analytics Ops inside an application's bundle instead:
+The setup is easier when you keep these four separate things in mind:
+
+| Item | What it does |
+| --- | --- |
+| Human Google Account | The account you use to sign in to Google Analytics and Google Cloud |
+| GA4 account and property | Holds your website's analytics configuration and collected data |
+| Google Cloud project | Owns API access, quota, and the service account; it does not hold your GA4 report data |
+| Service account | The non-human identity Analytics Ops uses to call Google's APIs |
+
+### A. Create GA4 only if you do not already have it
+
+Already have a working GA4 property collecting website data? Skip to
+[Create the Google Cloud project](#b-create-the-google-cloud-project).
+
+1. Sign in at [Google Analytics](https://analytics.google.com).
+2. Click **Start Measuring**, or open **Admin → Create → Account**.
+3. Create an Analytics account.
+4. Create a GA4 property and choose its reporting time zone and currency.
+5. Create a Web data stream using your website URL.
+6. Install the resulting Google tag or Measurement ID on your website.
+
+Analytics Ops reads and manages an existing GA4 property. It does not install
+the website tracking tag or send browser events.
+
+### B. Create the Google Cloud project
+
+1. Sign in at [Google Cloud](https://console.cloud.google.com).
+2. Open the project selector and choose **New Project**.
+3. Use a clear name such as **Analytics Ops**.
+4. Choose **No organization** if you use a personal account. That is fine.
+5. Create the project and make sure it is selected before continuing.
+
+Google requires this separate project for API access, quota, and the service
+account identity. Creating it does not create another GA4 account or move your
+analytics data.
+
+### C. Enable the two required APIs
+
+In the selected Cloud project, open **APIs & Services → Library** and enable
+exactly:
+
+- **Google Analytics Admin API**
+- **Google Analytics Data API**
+
+You do not need the Gemini API.
+
+### D. Create the service account
+
+1. Open **IAM & Admin → Service Accounts**.
+2. Click **Create service account**.
+3. Use a name such as **Analytics Ops Local**.
+4. Continue past the optional Cloud permissions step without assigning
+   **Owner**, **Editor**, or another broad Cloud IAM role.
+5. Finish creating the service account.
+6. Copy its email address. It resembles:
+   `analytics-ops@example-project.iam.gserviceaccount.com`.
+
+Google Cloud IAM Editor and GA4 Editor are different roles. The service
+account does not need the Cloud IAM Editor role.
+
+### E. Download and protect the JSON key
+
+1. Open the service account you just created.
+2. Open **Keys**.
+3. Choose **Add key → Create new key → JSON**.
+4. Download the key.
+5. Move it to a stable location outside every application repository.
+6. On macOS or Linux, protect it with mode `0600`:
+
+```bash
+mkdir -p ~/.config/analytics_ops
+chmod 700 ~/.config/analytics_ops
+mv /path/to/downloaded-key.json \
+  ~/.config/analytics_ops/service-account.json
+chmod 600 ~/.config/analytics_ops/service-account.json
+```
+
+Protect this file like a password:
+
+- Never commit it.
+- Never paste its contents into chat, logs, screenshots, issues, or
+  environment variables.
+- Do not put it inside `config/analytics_ops.yml`.
+- If it is exposed, revoke the key in Google Cloud and create a replacement.
+
+### F. Give the service account GA4 access
+
+1. Return to [Google Analytics](https://analytics.google.com).
+2. Select the correct GA4 account and property.
+3. Open **Admin**.
+4. Choose **Property access management** for one property, or **Account access
+   management** for every property in that GA4 account.
+5. Click **+ → Add users**.
+6. Paste the service-account email.
+7. Disable **Notify new users by email**. A service account has no human
+   inbox.
+8. Select **Viewer** for reports, discovery, snapshots, doctor, and audit.
+   Select **Editor** only if you plan to use reviewed `apply` operations
+   later.
+9. Do not grant **Administrator**. Analytics Ops does not manage GA4 users.
+10. Click **Add**.
+
+Your human Google Account must already have permission to manage users in
+that GA4 account or property.
+
+### G. Install and connect Analytics Ops
+
+For a standalone installation:
+
+```bash
+gem install analytics_ops
+analytics-ops setup \
+  --service-account ~/.config/analytics_ops/service-account.json
+```
+
+For an application that uses Bundler, add:
 
 ```ruby
 # Gemfile
 gem "analytics_ops", "~> 0.2", group: :development
 ```
 
+Then run:
+
 ```bash
 bundle install
 bundle exec analytics-ops setup \
-  --service-account /absolute/path/to/service-account.json
-bundle exec analytics-ops overview
+  --service-account ~/.config/analytics_ops/service-account.json
 ```
+
+Setup:
+
+- validates the key
+- verifies both Analytics APIs
+- lists the GA4 properties the service account can access
+- lets you choose a property
+- creates `config/analytics_ops.yml`
+- remembers only the key's absolute path in
+  `~/.config/analytics_ops/connection.json`
+
+### H. Verify the connection with read-only commands
+
+```bash
+bundle exec analytics-ops doctor
+bundle exec analytics-ops properties
+bundle exec analytics-ops overview
+bundle exec analytics-ops report traffic --json
+bundle exec analytics-ops realtime
+bundle exec analytics-ops audit
+```
+
+Empty reports are normal for a new property. These checks are read-only in
+GA4. Setup also makes no GA4 changes; it writes only the local configuration
+and connection pointer.
+
+`audit` exits with status `0` when configuration matches and status `2` when
+it finds drift. Both are successful read-only results.
+
+You do not need `gcloud`, a browser OAuth login, an OAuth consent screen, an
+OAuth test-user list, or Gemini. An API key cannot authorize access to private
+GA4 data.
+
+`apply` is the mutating command. Do not run it until you have created and
+reviewed a saved plan.
+
+### I. Quick troubleshooting
+
+- **No properties listed:** Add the exact service-account email to the correct
+  GA4 account or property.
+- **API disabled:** Select the correct Cloud project and confirm both
+  Analytics APIs are enabled.
+- **Permission denied:** Grant Viewer or Editor inside GA4. A Google Cloud IAM
+  role does not grant access to GA4 data.
+- **“This app is blocked” opens in a browser:** That is an obsolete OAuth
+  flow. Analytics Ops 0.2 uses a service-account JSON key and does not launch
+  browser authorization.
+- **Key unavailable:** Run setup again with the key's new absolute path.
+- **Key creation disabled:** An organization policy may prohibit downloaded
+  service-account keys. Ask the Google Workspace or Cloud administrator.
+
+Google's official guides cover
+[GA4 account and property creation](https://support.google.com/analytics/answer/14183469?hl=en),
+[Cloud project creation](https://docs.cloud.google.com/resource-manager/docs/creating-managing-projects),
+[API enablement](https://docs.cloud.google.com/service-usage/docs/enable-disable),
+[service-account creation](https://docs.cloud.google.com/iam/docs/service-accounts-create),
+[JSON key creation](https://docs.cloud.google.com/iam/docs/keys-create-delete),
+and [GA4 access management](https://support.google.com/analytics/answer/9305788?hl=en).
+
+See the [live read-only smoke-test guide](docs/live-smoke-test.md) for a safe
+real-app release test.
 
 Already connected? List properties before creating configuration:
 
