@@ -47,3 +47,26 @@ jobs:
 
       - name: Publish with RubyGems Trusted Publishing
         uses: rubygems/release-gem@v1
+        with:
+          await-release: false
+
+      - name: Verify the published gem
+        shell: bash
+        run: |
+          version="$(ruby -Ilib -ranalytics_ops/version -e 'print AnalyticsOps::VERSION')"
+          artifact="/tmp/analytics_ops-${version}.gem"
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --location \
+              --output "${artifact}" \
+              "https://rubygems.org/downloads/analytics_ops-${version}.gem"; then
+              break
+            fi
+            sleep 10
+          done
+          test -s "${artifact}"
+          ruby -rrubygems/package -e '
+            package = Gem::Package.new(ARGV.fetch(0))
+            expected = Gem::Version.new(ARGV.fetch(1))
+            abort "Published gem identity does not match the release" unless
+              package.spec.name == "analytics_ops" && package.spec.version == expected
+          ' "${artifact}" "${version}"

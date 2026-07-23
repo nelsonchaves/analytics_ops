@@ -3,6 +3,14 @@
 Analytics Ops follows Semantic Versioning for its public Ruby, CLI,
 configuration, and plan contracts.
 
+## [Unreleased]
+
+### Changed
+
+- Verify future RubyGems releases from the published artifact instead of
+  waiting for the legacy full index, which can lag behind a successful
+  Trusted Publishing upload.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added
