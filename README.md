@@ -1,5 +1,10 @@
 # Analytics Ops
 
+[![Gem Version](https://img.shields.io/gem/v/analytics_ops.svg)](https://rubygems.org/gems/analytics_ops)
+[![CI](https://github.com/nelsonchaves/analytics_ops/actions/workflows/ci.yml/badge.svg)](https://github.com/nelsonchaves/analytics_ops/actions/workflows/ci.yml)
+[![Documentation](https://img.shields.io/badge/docs-rubydoc.info-blue.svg)](https://rubydoc.info/gems/analytics_ops)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE.txt)
+
 **Google Analytics 4 configuration as code and reporting for Ruby and Rails.**
 
 Analytics Ops gives you a review-first way to inspect GA4, detect drift, run

@@ -70,3 +70,25 @@ jobs:
             abort "Published gem identity does not match the release" unless
               package.spec.name == "analytics_ops" && package.spec.version == expected
           ' "${artifact}" "${version}"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists; skipping."
+            exit 0
+          fi
+          version="$(ruby -Ilib -ranalytics_ops/version -e 'print AnalyticsOps::VERSION')"
+          notes="$(awk -v ver="${version}" '
+            $0 ~ ("^## \\[" ver "\\]") { flag = 1; next }
+            /^## \[/ && flag { exit }
+            flag { print }
+          ' CHANGELOG.md)"
+          test -n "${notes}"
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "Analytics Ops ${version}" \
+            --verify-tag \
+            --notes "${notes}"
