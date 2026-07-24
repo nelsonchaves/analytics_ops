@@ -42,10 +42,28 @@ RSpec.describe "optional Rails integration" do
         environment: { "GA4_PROPERTY_ID" => "123456789" }
       )
 
-      expect(document.profile("development").property_id).to eq("123456789")
-      expect(document.profile("development").streams).to be_empty
+      expect(document.profile("production").property_id).to eq("123456789")
+      expect(document.profile("production").streams).to be_empty
       expect(File.stat(executable).mode & 0o777).to eq(0o755)
       expect(File.read(configuration)).not_to match(/private_key|access_token|client_secret/)
+    end
+  end
+
+  it "lets setup fill the generated configuration without requiring an environment variable" do
+    Dir.mktmpdir do |directory|
+      generator = AnalyticsOps::Generators::InstallGenerator.new([], {}, destination_root: directory)
+      generator.invoke_all
+      configuration = File.join(directory, "config/analytics_ops.yml")
+
+      result = AnalyticsOps::Configuration::Writer.new.write_minimal(
+        configuration,
+        profile: "production",
+        property_id: "123456789"
+      )
+
+      expect(result).to be_updated
+      expect(AnalyticsOps::Configuration.load(configuration).profile("production").property_id)
+        .to eq("123456789")
     end
   end
 
@@ -86,6 +104,7 @@ RSpec.describe "optional Rails integration" do
       "analytics:plan",
       "analytics:verify",
       "analytics:overview",
+      "analytics:portfolio",
       "analytics:report"
     )
   ensure

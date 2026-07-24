@@ -3,6 +3,7 @@
 # Reporting public namespace.
 
 require_relative "reports/definition"
+require_relative "reports/period"
 require_relative "reports/catalog"
 require_relative "reports/overview"
 require_relative "reports/result"

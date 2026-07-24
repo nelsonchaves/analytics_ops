@@ -75,8 +75,8 @@ jobs:
       - name: Run optional Rails integration specs outside the core bundle
         run: ruby -Ilib "$(ruby -e 'puts Gem.bin_path("rspec-core", "rspec")')" spec/analytics_ops/rails_spec.rb
 
-  google-clients:
-    name: Current allowed Google clients
+  api-clients:
+    name: Current allowed Google and MCP clients
     runs-on: ubuntu-latest
     env:
       RSPEC_STATUS_FILE: /tmp/analytics_ops-google-rspec-status
@@ -91,8 +91,8 @@ jobs:
           bundler-cache: true
       - name: Allow the compatibility job to refresh its temporary lockfile
         run: bundle config unset deployment
-      - run: bundle update google-analytics-admin google-analytics-admin-v1alpha google-analytics-data google-analytics-data-v1beta googleauth
-      - run: bundle exec rspec spec/analytics_ops/clients
+      - run: bundle update google-analytics-admin google-analytics-admin-v1alpha google-analytics-data google-analytics-data-v1beta googleauth mcp
+      - run: bundle exec rspec spec/analytics_ops/clients spec/analytics_ops/mcp_server_spec.rb
 
   package:
     name: Package inspection

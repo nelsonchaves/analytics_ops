@@ -38,6 +38,19 @@ analytics-ops report calculator_completions --csv
 analytics-ops realtime
 ```
 
+Change dates without writing Ruby:
+
+```bash
+analytics-ops report traffic --last 7
+analytics-ops report traffic --from 2026-07-01 --to 2026-07-07
+analytics-ops report traffic --last 30 --compare
+```
+
+`--last` ends at yesterday so it uses complete days. `--from` and `--to` are
+inclusive and must be used together. `--compare` adds the equally long period
+immediately before the requested range. Comparison rows contain Google's
+automatic `dateRange` dimension with `current` or `previous`.
+
 CSV is accepted only for `report` and `realtime`. The CSV renderer protects
 headers and cells whose first meaningful character is `=`, `+`, `-`, or `@`,
 including formula text hidden behind whitespace or control characters.
@@ -65,6 +78,18 @@ The realtime recipe intentionally requests only `eventCount` with
 `eventName`. Google does not allow `activeUsers` with that dimension. Realtime
 is a short-lived event check rather than a complete user report.
 
+## Multiple-property portfolio
+
+```bash
+analytics-ops portfolio
+analytics-ops portfolio --last 7 --compare
+```
+
+Portfolio runs one small dimensionless totals report for each configured
+profile and shows active users, sessions, and key events together. Each
+profile uses its own saved named connection. This is read-only, but each
+property still consumes normal Google Data API quota.
+
 ## Ruby
 
 ```ruby
@@ -81,6 +106,10 @@ puts result.metadata
 overview = workspace.overview
 puts overview.report("overview_totals").rows
 puts overview.property_quota
+
+ranges = AnalyticsOps::Reports::Period.resolve(last_days: 7, compare: true)
+comparison = workspace.report("traffic", date_ranges: ranges)
+puts comparison.rows
 ```
 
 Custom immutable definition:

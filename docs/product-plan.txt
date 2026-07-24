@@ -106,6 +106,8 @@ Core runtime dependencies:
 
 - `google-analytics-admin`, maintained by Google.
 - `google-analytics-data`, maintained by Google.
+- `mcp`, the official Ruby Model Context Protocol SDK, for the strictly
+  read-only local AI bridge.
 
 RSpec is the test framework. The core library must not require Rails. Avoid a
 CLI framework until OptionParser becomes demonstrably inadequate. Avoid
@@ -309,6 +311,9 @@ Command behavior:
 - `apply` accepts a saved plan and requires explicit confirmation.
 - `verify` proves that managed state now converges.
 - `report` and `realtime` are always read-only.
+- `portfolio` summarizes every configured property without mutation.
+- `mcp` exposes a fixed read-only tool allowlist and contains no plan or apply
+  tool.
 
 Global options include profile, configuration path, output format, log level,
 transport, timeout, and noninteractive behavior.
@@ -747,6 +752,8 @@ credentials.
 - RSpec.
 - No database.
 - No telemetry.
+- Local AI access is read-only by construction; mutation remains an explicit
+  human CLI workflow.
 - No browser tag or consent management.
 - One gem initially; split packages only if real dependency or release pressure
   demonstrates a need.

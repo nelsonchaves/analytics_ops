@@ -46,7 +46,7 @@ gem "analytics_ops",
 ```
 
 Run `bundle install`. `bundle info analytics_ops` must show the local checkout
-and version `0.2.0`.
+and version `0.3.0`.
 
 ### Preserve an existing configuration
 
@@ -72,9 +72,10 @@ bundle exec analytics-ops setup \
   --service-account /absolute/path/outside/repositories/service-account.json
 ```
 
-Analytics Ops validates the key, verifies both APIs, and remembers only its
-absolute path in `~/.config/analytics_ops/connection.json` with mode `0600`.
-The key is not copied.
+Analytics Ops validates the key, verifies both APIs, and remembers a named
+connection containing only its absolute path in
+`~/.config/analytics_ops/connection.json` with mode `0600`. The key is not
+copied.
 
 Run plain setup once more to verify the remembered connection:
 
@@ -89,6 +90,8 @@ bundle exec analytics-ops version
 bundle info analytics_ops
 bundle exec analytics-ops doctor
 bundle exec analytics-ops overview
+bundle exec analytics-ops overview --last 7 --compare
+bundle exec analytics-ops portfolio
 bundle exec analytics-ops report traffic --json
 bundle exec analytics-ops realtime
 bundle exec analytics-ops audit
@@ -127,15 +130,15 @@ service account if Analytics Ops will remain in use. For a temporary-only
 test, remove the connection file and revoke the downloaded key in Google
 Cloud.
 
-Keep the local path dependency until `0.2.0` is published. After publication,
+Keep the local path dependency until `0.3.0` is published. After publication,
 replace it with:
 
 ```ruby
-gem "analytics_ops", "~> 0.2", group: :development
+gem "analytics_ops", "~> 0.3", group: :development
 ```
 
 Run `bundle install`, then confirm `bundle info analytics_ops` resolves
-version `0.2.0` from RubyGems.
+version `0.3.0` from RubyGems.
 
 ## Release gate
 
@@ -146,13 +149,13 @@ Require all of the following:
 - `bin/check`, package inspection, and `git diff --check` passed.
 - Documentation and changelog describe the released behavior.
 - The gem worktree is clean and the release commit is on `origin/master`.
-- Version and changelog both say `0.2.0`.
+- Version and changelog both say `0.3.0`.
 
 Then create and push the annotated tag:
 
 ```bash
-git tag -a v0.2.0 -m "Release Analytics Ops 0.2.0"
-git push origin v0.2.0
+git tag -a v0.3.0 -m "Release Analytics Ops 0.3.0"
+git push origin v0.3.0
 ```
 
 The tag workflow verifies and publishes through RubyGems Trusted Publishing.

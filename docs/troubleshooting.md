@@ -56,12 +56,20 @@ Check that:
 - the Analytics Admin and Data APIs are enabled in its Cloud project
 - the service-account email is added in GA4 Access Management
 
-The saved pointer is `~/.config/analytics_ops/connection.json`. It contains
-only the key path. Rerunning setup with `--service-account` safely replaces
-that pointer after API verification succeeds.
+The saved connection file is `~/.config/analytics_ops/connection.json`. It
+contains only named key paths and local profile choices. Rerunning setup with
+`--service-account` updates the selected named connection only after API
+verification succeeds.
 
 Analytics Ops does not fall back to `gcloud`, browser login, Application
 Default Credentials, `GOOGLE_APPLICATION_CREDENTIALS`, or API keys.
+
+If several connections exist and a profile is not associated yet, choose one:
+
+```bash
+analytics-ops connections
+analytics-ops use client_b --connection client_b
+```
 
 ## Permission failure (exit 77)
 
@@ -116,14 +124,45 @@ Google thresholding, sampling, consent coverage, cardinality, and processing
 delay can explain an empty or lower-than-expected result. Inspect
 `result.metadata` in JSON output.
 
-## Rails task cannot find a profile
+Date shortcuts are strict:
 
-Rails tasks default to `Rails.env`. The generator creates a
-`development` profile. Add the intended profile or override it:
+- use `--last DAYS`, or use `--from YYYY-MM-DD --to YYYY-MM-DD`
+- do not combine the two forms
+- use them only with `report`, `overview`, or `portfolio`
+- `--compare` uses the immediately preceding period of the same length
+
+## Rails setup or task cannot find a profile
+
+The generator and CLI both default to `production`. It is safe to run the
+generator before setup: setup fills its untouched property placeholder. It is
+also safe to run setup first: the generator preserves that file.
+
+Rails tasks use the locally selected profile. Inspect or change it:
+
+```bash
+bundle exec analytics-ops profiles
+bundle exec analytics-ops use production
+```
+
+For one explicit task override:
 
 ```bash
 ANALYTICS_OPS_PROFILE=production bin/rake analytics:doctor
 ```
+
+## ChatGPT or Claude cannot see Analytics Ops
+
+First prove the local command is healthy:
+
+```bash
+analytics-ops doctor
+analytics-ops mcp --config /absolute/path/to/config/analytics_ops.yml
+```
+
+The second command waits silently for MCP protocol input; press Ctrl-C when
+testing it directly. Use an absolute config path and, for Bundler applications,
+the absolute generated `bin/analytics-ops` path. Restart the AI client after
+adding the server. See [ChatGPT, Codex, and Claude](ai-connections.md).
 
 ## Report a problem safely
 

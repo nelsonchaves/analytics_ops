@@ -10,6 +10,7 @@ second HTTP stack and does not expose generated Google objects publicly.
 | `google-analytics-admin` | `~> 0.8.0` | 0.8.0 |
 | `google-analytics-data` | `~> 0.9.0` | 0.9.0 |
 | `googleauth` | `~> 1.12` | 1.17.1 |
+| `mcp` | `~> 0.25.0` | 0.25.0 |
 
 The reviewed lockfile resolves these generated transports:
 
@@ -49,6 +50,10 @@ The tests also prove enum mappings and normalization into immutable gem-owned
 values without making network requests. Service-account tests exercise the
 official `Google::Auth::ServiceAccountCredentials` loader with generated fake
 keys and verify the exact read/edit scopes.
+
+MCP contract tests use the official Ruby SDK to prove the exact tool allowlist,
+strict input validation, structured output, redacted errors, lazy credential
+loading, and read-only/non-destructive annotations.
 
 ## Updating a Google client
 

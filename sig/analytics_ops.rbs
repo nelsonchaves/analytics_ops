@@ -4,6 +4,16 @@ module AnalyticsOps
   type record = Hash[String, untyped]
 
   class Error < StandardError
+    attr_reader remote_reason: String?
+    attr_reader remote_metadata: record
+    attr_reader remote_code: String?
+
+    def initialize: (
+      ?String? message,
+      ?remote_reason: untyped,
+      ?remote_metadata: untyped,
+      ?remote_code: untyped
+    ) -> void
   end
 
   class ConfigurationError < Error
@@ -61,20 +71,46 @@ module AnalyticsOps
     ACCESS_SCOPES: Hash[Symbol, Array[String]]
 
     attr_reader path: String
+    attr_reader security_warnings: Array[String]
 
-    def self.load: (?path: String?, ?store: Store) -> ServiceAccount
+    def self.load: (
+      ?path: String?,
+      ?store: Store,
+      ?connection: String?,
+      ?config: String?,
+      ?profile: String?
+    ) -> ServiceAccount
     def initialize: (String path) -> void
 
     class Store
       VERSION: Integer
+      LEGACY_VERSION: Integer
       MAX_BYTES: Integer
 
       attr_reader path: String
 
       def self.default_path: () -> String
       def initialize: (?path: String?) -> void
-      def read: () -> String
-      def write: (String service_account_path) -> String
+      def read: (?name: String?, ?config: String?, ?profile: String?) -> String
+      def resolve_connection_name: (?name: String?, ?config: String?, ?profile: String?) -> String
+      def connection_name_for: (
+        String service_account_path,
+        preferred: String,
+        config: String,
+        profile: String
+      ) -> String
+      def write: (
+        String service_account_path,
+        ?name: String,
+        ?config: String?,
+        ?profile: String?,
+        ?select: bool
+      ) -> String
+      def select: (config: String, profile: String, ?connection: String?) -> record
+      def selection: (config: String) -> record?
+      def selected_profile: (config: String) -> String?
+      def profile_connection: (config: String, profile: String) -> String?
+      def summaries: () -> Array[record]
     end
   end
 
@@ -161,8 +197,10 @@ module AnalyticsOps
       class Result
         attr_reader path: String
 
-        def initialize: (path: String, created: bool) -> void
+        def initialize: (path: String, created: bool, ?updated: bool) -> void
         def created?: () -> bool
+        def updated?: () -> bool
+        def changed?: () -> bool
         def to_h: () -> record
       end
 
@@ -308,7 +346,20 @@ module AnalyticsOps
         ?limit: Integer
       ) -> void
       def realtime?: () -> bool
+      def with_date_ranges: (Array[record] value) -> Definition
       def to_h: () -> record
+    end
+
+    module Period
+      DEFAULT_DAYS: Integer
+      MAX_DAYS: Integer
+
+      def self.resolve: (
+        ?last_days: Integer?,
+        ?start_date: String?,
+        ?end_date: String?,
+        ?compare: bool
+      ) -> Array[record]?
     end
 
     module Catalog
@@ -389,6 +440,7 @@ module AnalyticsOps
   class Connection
     class Verification
       attr_reader property: Resources::Property
+      attr_reader warnings: Array[String]
 
       def initialize: (property: Resources::Property) -> void
       def to_h: () -> record
@@ -412,14 +464,18 @@ module AnalyticsOps
       attr_reader config_path: String
       attr_reader profile: String
       attr_reader property: Resources::Property
+      attr_reader warnings: Array[String]
 
       def initialize: (
         config_path: String,
         profile: String | Symbol,
         property: Resources::Property,
-        created: bool
+        created: bool,
+        ?updated: bool,
+        ?warnings: Array[String]
       ) -> void
       def created?: () -> bool
+      def updated?: () -> bool
       def status: () -> String
       def to_h: () -> record
     end
@@ -430,6 +486,7 @@ module AnalyticsOps
       profile: String | Symbol,
       ?property_id: String?,
       ?noninteractive: bool,
+      ?warnings: Array[String],
       ?input: untyped,
       ?out: untyped
     ) -> void
@@ -481,10 +538,62 @@ module AnalyticsOps
     def plan: () -> Plan
     def apply: (Plan | String plan_or_path, ?confirm: bool) -> Applier::Result
     def verify: () -> Verification
-    def report: (String | Reports::Definition name_or_definition) -> Reports::Result
+    def report: (
+      String | Reports::Definition name_or_definition,
+      ?date_ranges: Array[record]?
+    ) -> Reports::Result
     def realtime: (?String | Reports::Definition name_or_definition) -> Reports::Result
-    def overview: () -> Reports::OverviewResult
+    def overview: (?date_ranges: Array[record]?) -> Reports::OverviewResult
     def doctor: () -> DoctorResult
+  end
+
+  class Portfolio
+    class Entry < Resources::Value
+      attr_reader profile: String
+      attr_reader property_id: String
+      attr_reader period: String
+      attr_reader active_users: String
+      attr_reader sessions: String
+      attr_reader key_events: String
+    end
+
+    class Result
+      attr_reader entries: Array[Entry]
+      attr_reader date_ranges: Array[record]
+
+      def initialize: (entries: Array[Entry], date_ranges: Array[record]) -> void
+      def to_h: () -> record
+    end
+
+    def initialize: (
+      config: String,
+      ?store: ServiceAccount::Store,
+      ?workspace_loader: untyped,
+      ?service_account_loader: untyped,
+      ?transport: Symbol,
+      ?timeout: (Integer | Float)?,
+      ?logger: untyped
+    ) -> void
+    def overview: (?date_ranges: Array[record]?) -> Result
+  end
+
+  class MCPServer
+    attr_reader server: untyped
+
+    def initialize: (
+      ?config: String,
+      ?profile: String?,
+      ?connection: String?,
+      ?store: ServiceAccount::Store,
+      ?workspace_loader: untyped,
+      ?connection_loader: untyped,
+      ?service_account_loader: untyped,
+      ?portfolio_loader: untyped,
+      ?transport: Symbol,
+      ?timeout: (Integer | Float)?,
+      ?logger: untyped
+    ) -> void
+    def start: () -> untyped
   end
 
   class CLI
@@ -496,7 +605,9 @@ module AnalyticsOps
       ?workspace_loader: untyped,
       ?connection_loader: untyped,
       ?service_account_loader: untyped,
-      ?service_account_store: ServiceAccount::Store?
+      ?service_account_store: ServiceAccount::Store?,
+      ?mcp_server_loader: untyped,
+      ?portfolio_loader: untyped
     ) -> Integer
   end
 end

@@ -5,11 +5,62 @@ configuration, and plan contracts.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-23
+
+### Added
+
+- Named service-account connections with per-configuration profile mappings,
+  `connections`, `profiles`, and `use` commands, plus automatic migration from
+  the version-1 single-key pointer.
+- Collision-safe automatic connection names when separate applications both
+  use the default `production` profile with different credentials.
+- Safe additive setup for a second property profile without hand-editing YAML.
+- `--last`, `--from`, `--to`, and `--compare` for standard reports and
+  overviews, with bounded equal preceding-period comparisons.
+- A read-only `portfolio` summary across every configured property and its
+  associated Google connection.
+- A local stdio `mcp` server for ChatGPT desktop, Codex, and Claude Code. Its
+  strict tool allowlist supports discovery, doctor, snapshot, audit,
+  overview, portfolio, standard reports, and realtime reads only.
+- Service-account file permission and Git-repository placement warnings in
+  setup and doctor.
+- A beginner-friendly AI connection guide with the exact local commands,
+  privacy boundary, and optional OpenAI Secure MCP Tunnel explanation.
+
 ### Changed
 
 - Verify future RubyGems releases from the published artifact instead of
   waiting for the legacy full index, which can lag behind a successful
   Trusted Publishing upload.
+- Rails generator and CLI setup now share the `production` default. Setup can
+  fill the untouched generated placeholder, and Rails tasks use the locally
+  selected profile unless `ANALYTICS_OPS_PROFILE` explicitly overrides it.
+- The mode-`0600` user connection file now stores multiple named key paths and
+  profile selections while still storing no key material.
+- Google transport errors preserve bounded structured reason, metadata, and
+  status values so disabled-API guidance does not depend on English wording.
+
+### Fixed
+
+- Show complete redacted before/after values during interactive apply instead
+  of truncating the exact operation being approved.
+- Require `--non-interactive --yes` for JSON apply so prompts can never corrupt
+  machine-readable standard output.
+- Reject duplicate stream IDs during configuration loading instead of failing
+  later during planning.
+- Preserve both the beginning and ending of long human report cells so similar
+  URLs remain visibly distinct.
+- Validate saved connection mappings against existing connection names.
+
+### Security
+
+- Every MCP tool is explicitly annotated read-only and non-destructive; the
+  server contains no plan, apply, create, update, delete, archive, credential,
+  or key-path tool.
+- Starting MCP, listing local profiles, and switching profiles perform no
+  Google network access or credential loading.
+- MCP input schemas are strict and bounded, tool errors are redacted, and
+  unexpected exceptions do not expose internal details.
 
 ## [0.2.0] - 2026-07-22
 

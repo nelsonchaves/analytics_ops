@@ -39,4 +39,11 @@ RSpec.describe AnalyticsOps::Redaction do
 
     expect(described_class.message(invalid)).to eq("bad?value")
   end
+
+  it "can safely render complete trusted operational text without truncating it" do
+    source = "#{"x" * 1_100}VISIBLE-END"
+
+    expect(described_class.text(source)).to end_with("VISIBLE-END")
+    expect(described_class.text("access_token=secret")).to eq("access_token=[REDACTED]")
+  end
 end

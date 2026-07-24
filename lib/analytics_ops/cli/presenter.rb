@@ -41,6 +41,41 @@ module AnalyticsOps
         write(lines.join("\n"))
       end
 
+      def render_connections(connections)
+        return render(connections) unless @format == "human"
+        if connections.empty?
+          return write("No Google connections saved. Run `analytics-ops setup --service-account PATH`.")
+        end
+
+        lines = connections.map do |connection|
+          status = connection.fetch("available") ? "ready" : "key unavailable"
+          in_use = connection.fetch("in_use") ? " · in use" : ""
+          "#{display(connection.fetch("name"))}: #{status}#{in_use}"
+        end
+        write(lines.join("\n"))
+      end
+
+      def render_profiles(profiles)
+        return render(profiles) unless @format == "human"
+
+        lines = profiles.map do |profile|
+          marker = profile.fetch("selected") ? "*" : " "
+          connection = profile["connection"] || "not connected"
+          "#{marker} #{display(profile.fetch("name"))}: property #{display(profile.fetch("property_id"))} " \
+            "· connection #{display(connection)}"
+        end
+        write(lines.join("\n"))
+      end
+
+      def render_selection(selection)
+        return render(selection) unless @format == "human"
+
+        write(
+          "Using profile #{display(selection.fetch("profile"))} with connection " \
+          "#{display(selection.fetch("connection"))}."
+        )
+      end
+
       def json(value)
         payload = serializable(value)
         "#{JSON.pretty_generate(Canonical.normalize(payload))}\n"
@@ -81,9 +116,9 @@ module AnalyticsOps
         ]
         return lines unless detailed
 
-        lines << "    before: #{display(JSON.generate(Canonical.normalize(change.before)))}"
-        lines << "    after:  #{display(JSON.generate(Canonical.normalize(change.after)))}"
-        lines << "    rollback: #{display(change.rollback)}"
+        lines << "    before: #{complete_display(JSON.generate(Canonical.normalize(change.before)))}"
+        lines << "    after:  #{complete_display(JSON.generate(Canonical.normalize(change.after)))}"
+        lines << "    rollback: #{complete_display(change.rollback)}"
       end
 
       def csv_cell(value)
@@ -127,6 +162,8 @@ module AnalyticsOps
           human_report(value)
         when Reports::OverviewResult
           human_overview(value)
+        when Portfolio::Result
+          human_portfolio(value)
         when Array
           human_discovery(value)
         else
@@ -149,11 +186,27 @@ module AnalyticsOps
       end
 
       def human_overview(overview)
-        lines = ["Overview for property #{display(overview.property_id)} — previous 28 complete days"]
+        lines = ["Overview for property #{display(overview.property_id)}"]
         overview.reports.each do |report|
           lines << ""
           lines << OVERVIEW_LABELS.fetch(report.name, report.name)
           lines.concat(human_report_table(report))
+        end
+        lines.join("\n")
+      end
+
+      def human_portfolio(portfolio)
+        headers = %w[profile property_id period active_users sessions key_events]
+        rows = portfolio.entries.map(&:to_h)
+        widths = headers.to_h do |header|
+          values = rows.map { |row| display(row.fetch(header)) }
+          [header, ([header.length] + values.map(&:length)).max.clamp(1, 60)]
+        end
+        lines = ["Portfolio overview — #{portfolio.entries.length} property/period rows"]
+        lines << table_row(headers, widths)
+        lines << headers.map { |header| "-" * widths.fetch(header) }.join("-+-")
+        rows.each do |row|
+          lines << table_row(headers.map { |header| row.fetch(header) }, widths, headers:)
         end
         lines.join("\n")
       end
@@ -175,8 +228,17 @@ module AnalyticsOps
 
       def table_row(values, widths, headers: values)
         values.zip(headers).map do |value, header|
-          display(value).slice(0, widths.fetch(header)).ljust(widths.fetch(header))
+          truncate_cell(complete_display(value), widths.fetch(header)).ljust(widths.fetch(header))
         end.join(" | ")
+      end
+
+      def truncate_cell(value, width)
+        return value if value.length <= width
+        return "…" if width == 1
+
+        left = (width - 1) / 2
+        right = width - left - 1
+        "#{value.slice(0, left)}…#{value.slice(-right, right)}"
       end
 
       def human_discovery(accounts)
@@ -197,6 +259,10 @@ module AnalyticsOps
 
       def display(value)
         Redaction.message(value)
+      end
+
+      def complete_display(value)
+        Redaction.text(value)
       end
 
       def safe_human_value(value)

@@ -91,13 +91,19 @@ RSpec.describe AnalyticsOps::Setup do
     expect do
       described_class::Result.new(config_path: "config/analytics_ops.yml", profile: "production",
                                   property:, created: nil)
-    end.to raise_error(ArgumentError, /true or false/)
+    end.to raise_error(ArgumentError, /distinct booleans/)
   end
 
   it "explains how to enable either API when property verification finds it disabled" do
     connection = instance_double(AnalyticsOps::Connection, properties: [account_with(property)])
     allow(connection).to receive(:verify)
-      .and_raise(AnalyticsOps::RemoteError, "SERVICE_DISABLED: analyticsdata.googleapis.com")
+      .and_raise(
+        AnalyticsOps::RemoteError.new(
+          "Google rejected the request",
+          remote_reason: "SERVICE_DISABLED",
+          remote_metadata: { "service" => "analyticsdata.googleapis.com" }
+        )
+      )
 
     expect do
       described_class.new(
@@ -110,5 +116,20 @@ RSpec.describe AnalyticsOps::Setup do
       AnalyticsOps::RemoteError,
       /Enable Google Analytics Admin API and Google Analytics Data API/
     )
+  end
+
+  it "does not guess API status by matching translated English message text" do
+    connection = instance_double(AnalyticsOps::Connection, properties: [account_with(property)])
+    original = AnalyticsOps::RemoteError.new("The API may be disabled, but no structured reason was provided")
+    allow(connection).to receive(:verify).and_raise(original)
+
+    expect do
+      described_class.new(
+        connection:,
+        config: "config/analytics_ops.yml",
+        profile: "production",
+        property_id: "123456789"
+      ).call
+    end.to raise_error(AnalyticsOps::RemoteError, original.message)
   end
 end

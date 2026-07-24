@@ -9,7 +9,7 @@ require "analytics_ops/cli"
 
 RSpec.describe AnalyticsOps::CLI do
   def run(*arguments, workspace_loader: nil, connection_loader: nil, service_account_loader: nil,
-          service_account_store: nil, input: StringIO.new)
+          service_account_store: nil, mcp_server_loader: nil, portfolio_loader: nil, input: StringIO.new)
     out = StringIO.new
     err = StringIO.new
     service_account = instance_double(
@@ -17,7 +17,7 @@ RSpec.describe AnalyticsOps::CLI do
       path: "/tmp/obviously-fake-service-account.json"
     )
     service_account_loader ||= ->(**_options) { service_account }
-    service_account_store ||= double("ServiceAccountStore", write: nil)
+    service_account_store ||= double("ServiceAccountStore", write: nil, selected_profile: nil)
     status = described_class.start(
       arguments,
       out:,
@@ -26,7 +26,9 @@ RSpec.describe AnalyticsOps::CLI do
       workspace_loader:,
       connection_loader:,
       service_account_loader:,
-      service_account_store:
+      service_account_store:,
+      mcp_server_loader:,
+      portfolio_loader:
     )
 
     [status, out.string, err.string]
@@ -72,6 +74,39 @@ RSpec.describe AnalyticsOps::CLI do
     expect(status).to eq(AnalyticsOps::CLI::SUCCESS)
     expect(out).to eq("#{AnalyticsOps::VERSION}\n")
     expect(err).to be_empty
+  end
+
+  it "starts the read-only MCP protocol without writing non-protocol output" do
+    mcp_server = double("MCPServer", start: nil)
+    mcp_server_loader = double("MCPServerLoader", call: mcp_server)
+
+    status, output, error = run("mcp", mcp_server_loader:)
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(output).to be_empty
+    expect(error).to be_empty
+    expect(mcp_server).to have_received(:start).once
+    expect(mcp_server_loader).to have_received(:call).with(
+      config: "config/analytics_ops.yml",
+      profile: "production",
+      connection: nil,
+      store: kind_of(Object),
+      workspace_loader: kind_of(Method),
+      connection_loader: kind_of(Method),
+      service_account_loader: kind_of(Proc),
+      portfolio_loader: kind_of(Method),
+      transport: :grpc,
+      timeout: nil,
+      logger: an_instance_of(Logger)
+    )
+  end
+
+  it "rejects output formats for the MCP protocol" do
+    status, output, error = run("mcp", "--json")
+
+    expect(status).to eq(described_class::USAGE_ERROR)
+    expect(output).to be_empty
+    expect(JSON.parse(error).dig("error", "message")).to include("does not accept output formats")
   end
 
   it "rejects extra arguments for help and version" do
@@ -159,6 +194,116 @@ RSpec.describe AnalyticsOps::CLI do
     end
   end
 
+  it "includes the saved connection name in successful JSON setup output" do
+    connection = instance_double(AnalyticsOps::Connection, properties: [discovered_account])
+    allow(connection).to receive(:verify)
+      .with("123456789")
+      .and_return(AnalyticsOps::Connection::Verification.new(property:))
+
+    Dir.mktmpdir("analytics-ops-cli") do |directory|
+      status, output, error = run(
+        "setup", "--property", "123456789", "--non-interactive", "--json",
+        "--config", File.join(directory, "analytics_ops.yml"),
+        connection_loader: loader_for(connection)
+      )
+
+      expect(status).to eq(described_class::SUCCESS)
+      expect(JSON.parse(output).fetch("connection")).to eq("production")
+      expect(error).to be_empty
+    end
+  end
+
+  it "lists saved connections without loading Google or a workspace" do
+    store = double(
+      "ServiceAccountStore",
+      summaries: [
+        { "name" => "primary", "available" => true, "in_use" => true },
+        { "name" => "client_b", "available" => false, "in_use" => false }
+      ]
+    )
+    loader = ->(**_options) { raise "Google credentials must not load" }
+
+    status, output, error = run(
+      "connections",
+      service_account_store: store,
+      service_account_loader: loader,
+      workspace_loader: ->(**_options) { raise "workspace must not load" }
+    )
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(output).to include("primary: ready · in use", "client_b: key unavailable")
+    expect(error).to be_empty
+  end
+
+  it "lists and switches configured profiles without contacting Google" do
+    Dir.mktmpdir("analytics-ops-cli") do |directory|
+      config = File.join(directory, "analytics_ops.yml")
+      File.write(config, <<~YAML)
+        version: 1
+        profiles:
+          production:
+            property_id: "123456789"
+          client_b:
+            property_id: "987654321"
+      YAML
+      store = double("ServiceAccountStore")
+      allow(store).to receive(:selection).with(config:).and_return(
+        "profile" => "production", "connection" => "primary"
+      )
+      allow(store).to receive(:profile_connection) do |profile:, **|
+        profile == "production" ? "primary" : "client_b"
+      end
+      allow(store).to receive(:select)
+        .with(config:, profile: "client_b", connection: nil)
+        .and_return("profile" => "client_b", "connection" => "client_b")
+
+      list_status, list_output, list_error = run(
+        "profiles", "--config", config, service_account_store: store
+      )
+      use_status, use_output, use_error = run(
+        "use", "client_b", "--config", config, service_account_store: store
+      )
+
+      expect([list_status, use_status]).to all(eq(described_class::SUCCESS))
+      expect(list_output).to include("* production", "client_b", "connection client_b")
+      expect(use_output).to include("Using profile client_b with connection client_b")
+      expect([list_error, use_error]).to all(be_empty)
+    end
+  end
+
+  it "uses the locally selected profile and connection automatically" do
+    store = double("ServiceAccountStore", selected_profile: "client_b")
+    service_account = instance_double(AnalyticsOps::ServiceAccount)
+    credential_loader = double("ServiceAccountLoader", call: service_account)
+    overview = AnalyticsOps::Reports::OverviewResult.new(property_id: "987654321", reports: [report_result])
+    workspace = double("Workspace", overview:)
+    workspace_loader = double("WorkspaceLoader", call: workspace)
+
+    status, = run(
+      "overview",
+      service_account_store: store,
+      service_account_loader: credential_loader,
+      workspace_loader:
+    )
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(credential_loader).to have_received(:call).with(
+      path: nil,
+      store:,
+      connection: nil,
+      config: "config/analytics_ops.yml",
+      profile: "client_b"
+    )
+    expect(workspace_loader).to have_received(:call).with(
+      config: "config/analytics_ops.yml",
+      profile: "client_b",
+      service_account:,
+      transport: :grpc,
+      timeout: nil,
+      logger: an_instance_of(Logger)
+    )
+  end
+
   it "shows account context and accepts a numbered property choice" do
     first = property(id: "111111111").to_h.merge("display_name" => "Alpha property")
     account = AnalyticsOps::Resources::Account.new(
@@ -195,7 +340,7 @@ RSpec.describe AnalyticsOps::CLI do
       File.write(key_path, "{}")
       service_account = instance_double(AnalyticsOps::ServiceAccount, path: key_path)
       loader = double("ServiceAccountLoader", call: service_account)
-      store = double("ServiceAccountStore", write: nil)
+      store = double("ServiceAccountStore", write: nil, selected_profile: nil)
       status, output, error = run(
         "setup", "--property", "123456789", "--config", File.join(directory, "analytics_ops.yml"),
         "--service-account", key_path,
@@ -207,8 +352,19 @@ RSpec.describe AnalyticsOps::CLI do
       expect(status).to eq(described_class::SUCCESS)
       expect(output).to include("Connected production", "Next: analytics-ops overview")
       expect(error).to be_empty
-      expect(loader).to have_received(:call).with(path: key_path, store:)
-      expect(store).to have_received(:write).with(key_path).once
+      expect(loader).to have_received(:call).with(
+        path: key_path,
+        store:,
+        connection: nil,
+        config: File.join(directory, "analytics_ops.yml"),
+        profile: "production"
+      )
+      expect(store).to have_received(:write).with(
+        key_path,
+        name: "production",
+        config: File.join(directory, "analytics_ops.yml"),
+        profile: "production"
+      ).once
     end
   end
 
@@ -240,7 +396,7 @@ RSpec.describe AnalyticsOps::CLI do
   it "does not remember a service account when property verification fails" do
     connection = instance_double(AnalyticsOps::Connection, properties: [discovered_account])
     allow(connection).to receive(:verify).and_raise(AnalyticsOps::AuthorizationError, "Property access denied")
-    store = double("ServiceAccountStore")
+    store = double("ServiceAccountStore", selected_profile: nil)
     allow(store).to receive(:write)
 
     status, output, error = run(
@@ -279,7 +435,13 @@ RSpec.describe AnalyticsOps::CLI do
   it "returns the existing remote status with an actionable disabled-API command" do
     connection = instance_double(AnalyticsOps::Connection)
     allow(connection).to receive(:properties)
-      .and_raise(AnalyticsOps::RemoteError, "SERVICE_DISABLED: API has not been used")
+      .and_raise(
+        AnalyticsOps::RemoteError.new(
+          "Google rejected the request",
+          remote_reason: "SERVICE_DISABLED",
+          remote_metadata: { "service" => "analyticsdata.googleapis.com" }
+        )
+      )
 
     status, output, error = run(
       "setup", "--property", "123456789",
@@ -307,6 +469,29 @@ RSpec.describe AnalyticsOps::CLI do
     expect(human).to include("Report calculator_completions", "eventName")
     expect(JSON.parse(json).fetch("rows").first.fetch("eventCount")).to eq("12")
     expect(csv).to eq("eventName,eventCount\n'=unsafe,12\n")
+  end
+
+  it "visibly shortens long human report cells while preserving distinguishing endings" do
+    prefix = "https://example.test/#{"a" * 70}"
+    result = AnalyticsOps::Reports::Result.new(
+      name: "landing_pages",
+      kind: "standard",
+      dimension_headers: ["landingPage"],
+      metric_headers: ["sessions"],
+      rows: [
+        { "landingPage" => "#{prefix}/first-ending", "sessions" => "1" },
+        { "landingPage" => "#{prefix}/second-ending", "sessions" => "1" }
+      ],
+      row_count: 2,
+      metadata: {}
+    )
+    workspace = double("Workspace", report: result)
+
+    status, output, error = run("report", "landing-pages", workspace_loader: loader_for(workspace))
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(output).to include("…", "first-ending", "second-ending")
+    expect(error).to be_empty
   end
 
   it "neutralizes formula cells hidden behind whitespace in CSV" do
@@ -420,6 +605,51 @@ RSpec.describe AnalyticsOps::CLI do
     expect(JSON.parse(json).fetch("reports").length).to eq(5)
   end
 
+  it "supports simple custom dates and equal preceding-period comparisons" do
+    workspace = double("Workspace", report: report_result)
+    ranges = [
+      { "start_date" => "7daysAgo", "end_date" => "yesterday", "name" => "current" },
+      { "start_date" => "14daysAgo", "end_date" => "8daysAgo", "name" => "previous" }
+    ]
+
+    status, = run(
+      "report", "traffic", "--last", "7", "--compare",
+      workspace_loader: loader_for(workspace)
+    )
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(workspace).to have_received(:report).with("traffic", date_ranges: ranges)
+  end
+
+  it "validates report dates as usage errors" do
+    expect(run("report", "traffic", "--from", "2026-07-01").first).to eq(described_class::USAGE_ERROR)
+    expect(run("realtime", "--last", "7").first).to eq(described_class::USAGE_ERROR)
+    expect(run("overview", "--last", "0").first).to eq(described_class::USAGE_ERROR)
+  end
+
+  it "renders a read-only multi-property portfolio" do
+    result = AnalyticsOps::Portfolio::Result.new(
+      entries: [
+        AnalyticsOps::Portfolio::Entry.new(
+          profile: "production",
+          property_id: "123456789",
+          period: "current",
+          active_users: "12",
+          sessions: "15",
+          key_events: "3"
+        )
+      ],
+      date_ranges: [{ "start_date" => "28daysAgo", "end_date" => "yesterday" }]
+    )
+    portfolio = double("Portfolio", overview: result)
+
+    status, output, error = run("portfolio", portfolio_loader: ->(**) { portfolio })
+
+    expect(status).to eq(described_class::SUCCESS)
+    expect(output).to include("Portfolio overview", "production", "123456789", "15")
+    expect(error).to be_empty
+  end
+
   it "accepts CSV only for report result commands" do
     status, output, error = run("schema", "--format", "csv")
 
@@ -450,6 +680,8 @@ RSpec.describe AnalyticsOps::CLI do
     expect(run("verify", "--output", "plan.json").first).to eq(described_class::USAGE_ERROR)
     expect(run("doctor", "--timeout", "Infinity").first).to eq(described_class::USAGE_ERROR)
     expect(run("doctor", "--service-account", __FILE__).first).to eq(described_class::USAGE_ERROR)
+    expect(run("portfolio", "--connection", "primary").first).to eq(described_class::USAGE_ERROR)
+    expect(run("profiles", "--profile", "production").first).to eq(described_class::USAGE_ERROR)
   end
 
   it "never prompts for non-interactive apply and requires --yes" do
@@ -485,6 +717,52 @@ RSpec.describe AnalyticsOps::CLI do
       expect(output).to include("before:", "after:", "https://old.example.com", "https://example.com")
       expect(error).to be_empty
       expect(workspace).to have_received(:apply).with(an_instance_of(AnalyticsOps::Plan), confirm: true)
+    end
+  end
+
+  it "shows the complete saved value before interactive confirmation" do
+    ending = "VISIBLE-END"
+    long_uri = "https://example.com/#{"a" * 1_100}#{ending}"
+    desired = build_desired_state(
+      streams: [
+        {
+          "name" => "web",
+          "stream_id" => "987654321",
+          "default_uri" => long_uri,
+          "enhanced_measurement" => nil
+        }
+      ]
+    )
+    plan = AnalyticsOps::Planner.new(desired_state: desired, snapshot: snapshot).call
+    workspace = double("Workspace")
+    Tempfile.create(["analytics-ops-plan", ".json"]) do |file|
+      plan.write(file.path)
+      status, output, error = run(
+        "apply", file.path, workspace_loader: loader_for(workspace), input: StringIO.new("no\n")
+      )
+
+      expect(status).to eq(described_class::USAGE_ERROR)
+      expect(output).to include(ending)
+      expect(error).to include("Apply was not confirmed")
+    end
+  end
+
+  it "requires explicit non-interactive approval before JSON apply" do
+    plan = AnalyticsOps::Planner.new(desired_state: build_desired_state, snapshot: snapshot).call
+    input = double("Input")
+    allow(input).to receive(:gets)
+    Tempfile.create(["analytics-ops-plan", ".json"]) do |file|
+      plan.write(file.path)
+      status, output, error = run(
+        "apply", file.path, "--json", workspace_loader: loader_for(double("Workspace")), input:
+      )
+
+      expect(status).to eq(described_class::USAGE_ERROR)
+      expect(output).to be_empty
+      expect(JSON.parse(error).dig("error", "message")).to include(
+        "JSON apply requires --non-interactive --yes"
+      )
+      expect(input).not_to have_received(:gets)
     end
   end
 

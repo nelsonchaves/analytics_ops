@@ -14,10 +14,9 @@ Active Support.
 
 ```bash
 bundle install
-bundle exec analytics-ops setup \
-  --profile development \
-  --service-account /absolute/path/to/service-account.json
 bin/rails generate analytics_ops:install
+bundle exec analytics-ops setup \
+  --service-account /absolute/path/to/service-account.json
 ```
 
 The generator creates only:
@@ -25,20 +24,23 @@ The generator creates only:
 - `config/analytics_ops.yml`
 - `bin/analytics-ops` with executable mode
 
-If setup already created the configuration, the generator preserves it and
-adds only the binstub. It never asks to overwrite the selected property.
+The order is flexible:
 
-The generated file has a minimal `development` profile and a fake-safe
-property-ID placeholder. It contains no active stream, retention, key-event,
-dimension, or metric policy, so installation alone cannot produce a mutation
-plan. Add managed settings only after reviewing the configuration guide. Add
-a profile matching another Rails environment, or set `ANALYTICS_OPS_PROFILE`.
+- Generator first: setup safely replaces the untouched placeholder.
+- Setup first: the generator preserves the valid configuration and adds only
+  the binstub.
+
+The generated file has the same minimal `production` profile used by the CLI.
+It contains no active stream, retention, key-event, dimension, or metric
+policy, so installation alone cannot produce a mutation plan. Add managed
+settings only after reviewing the configuration guide.
 
 ## Rake tasks
 
 ```bash
 bin/rake analytics:doctor
 bin/rake analytics:overview
+bin/rake analytics:portfolio
 bin/rake analytics:audit
 bin/rake analytics:plan
 bin/rake analytics:verify
@@ -54,6 +56,10 @@ ANALYTICS_OPS_CONFIG=config/analytics_ops.yml \
 ANALYTICS_OPS_PLAN=tmp/production-ga4-plan.json \
 bin/rake analytics:plan
 ```
+
+Rails tasks use the profile selected by `analytics-ops use`. Set
+`ANALYTICS_OPS_PROFILE` only for an explicit one-run override; Rails
+environment names no longer silently select a different profile.
 
 There is intentionally no `analytics:apply` Rake task. Apply a reviewed file
 with the explicit CLI:

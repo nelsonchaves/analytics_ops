@@ -19,7 +19,12 @@ module AnalyticsOps
         translated = error_class(error.class.name)
         raise unless translated
 
-        raise translated, Redaction.message(error.message)
+        raise translated.new(
+          Redaction.message(error.message),
+          remote_reason: structured_value(error, :reason),
+          remote_metadata: structured_value(error, :error_metadata),
+          remote_code: structured_value(error, :code)
+        )
       end
 
       def error_class(name)
@@ -39,6 +44,13 @@ module AnalyticsOps
         end
       end
       private_class_method :error_class
+
+      def structured_value(error, method)
+        error.public_send(method) if error.respond_to?(method)
+      rescue StandardError
+        nil
+      end
+      private_class_method :structured_value
     end
     private_constant :ErrorTranslation
   end

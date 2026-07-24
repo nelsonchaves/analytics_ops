@@ -1,6 +1,6 @@
 # API support matrix
 
-This matrix describes Analytics Ops 0.2.0—not every method Google exposes.
+This matrix describes Analytics Ops 0.3.0—not every method Google exposes.
 
 | State | Meaning |
 | --- | --- |
@@ -10,7 +10,7 @@ This matrix describes Analytics Ops 0.2.0—not every method Google exposes.
 | Manual | Reported as an operator checklist |
 | Unsupported | Deliberately outside the public contract |
 
-| Capability | State | Exact 0.2.0 behavior |
+| Capability | State | Exact 0.3.0 behavior |
 | --- | --- | --- |
 | Account/property discovery | Audited | Lists accessible summaries without requiring configuration |
 | Data-stream discovery | Audited | Lists web, Android, and iOS streams without requiring configuration |
@@ -24,14 +24,18 @@ This matrix describes Analytics Ops 0.2.0—not every method Google exposes.
 | Realtime Data API reports | Audited | Immutable definitions and normalized results |
 | Batched overview | Audited | Five bounded standard reports through one `batchRunReports` call |
 | Friendly report aliases | Audited | `traffic` and `landing-pages` resolve to stable canonical recipes |
+| Date overrides and comparison | Audited | Bounded complete-day or absolute ranges, with an equal preceding period |
+| Multi-property portfolio | Audited | One small totals report per configured profile and named connection |
+| Local MCP tools | Audited | Read-only discovery, health, snapshot, audit, overview, portfolio, report, and realtime tools |
+| MCP mutation | Unsupported | No plan, apply, create, update, delete, or archive tool exists |
 | Enhanced Measurement | Experimental | Validated declaration and finding only; no mutation |
 | Google Signals | Experimental | Validated declaration and finding only; no mutation |
 | Consent coverage | Manual | Must be verified in tagging/consent systems |
 | Ads-personalization regions | Manual | Not inferred from similarly named API fields |
 | Stream data redaction | Manual | UI/API policy must be verified separately |
 | User-provided data setting | Unsupported | Not read or changed |
-| Event create/edit rules | Unsupported | Alpha, outside 0.2.0 |
-| Audiences and expanded datasets | Unsupported | Alpha, outside 0.2.0 |
+| Event create/edit rules | Unsupported | Alpha, outside 0.3.0 |
+| Audiences and expanded datasets | Unsupported | Alpha, outside 0.3.0 |
 | Google Ads, AdSense, DV360, SA360 links | Unsupported | Not read or changed |
 | BigQuery links | Unsupported | Not read or changed |
 | Access bindings | Unsupported | Not read or changed |

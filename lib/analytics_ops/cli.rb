@@ -23,15 +23,20 @@ module AnalyticsOps
     INTERRUPTED = 130
 
     COMMANDS = %w[
-      setup properties doctor discover snapshot audit plan apply verify overview report realtime schema
+      setup connections profiles use properties doctor discover snapshot audit plan apply verify overview report
+      realtime portfolio schema mcp
     ].freeze
     FORMATS = %w[human json csv].freeze
     LOG_LEVELS = %w[debug info warn error].freeze
-    NO_ARGUMENT_COMMANDS = %w[setup properties doctor discover snapshot audit plan verify overview schema].freeze
+    NO_ARGUMENT_COMMANDS = %w[
+      setup connections profiles properties doctor discover snapshot audit plan verify overview portfolio schema mcp
+    ].freeze
     CONNECTION_COMMANDS = %w[setup properties discover].freeze
+    LOCAL_COMMANDS = %w[connections profiles use mcp].freeze
 
     def self.start(arguments, out: $stdout, err: $stderr, input: $stdin, workspace_loader: nil,
-                   connection_loader: nil, service_account_loader: nil, service_account_store: nil)
+                   connection_loader: nil, service_account_loader: nil, service_account_store: nil,
+                   mcp_server_loader: nil, portfolio_loader: nil)
       new(
         arguments,
         out:,
@@ -40,12 +45,14 @@ module AnalyticsOps
         workspace_loader:,
         connection_loader:,
         service_account_loader:,
-        service_account_store:
+        service_account_store:,
+        mcp_server_loader:,
+        portfolio_loader:
       ).call
     end
 
     def initialize(arguments, out:, err:, input:, workspace_loader:, connection_loader:,
-                   service_account_loader:, service_account_store:)
+                   service_account_loader:, service_account_store:, mcp_server_loader:, portfolio_loader:)
       @arguments = arguments.dup
       @json_requested = json_option_present?(@arguments)
       @out = out
@@ -55,6 +62,8 @@ module AnalyticsOps
       @connection_loader = connection_loader || method(:load_connection)
       @service_account_loader = service_account_loader || ServiceAccount.method(:load)
       @service_account_store = service_account_store
+      @mcp_server_loader = mcp_server_loader || method(:load_mcp_server)
+      @portfolio_loader = portfolio_loader || method(:load_portfolio)
     end
 
     def call
@@ -86,22 +95,25 @@ module AnalyticsOps
 
     def execute(command)
       return render(Configuration::SCHEMA, status: SUCCESS) if command == "schema"
+      return dispatch_local(command) if LOCAL_COMMANDS.include?(command)
+      return run_portfolio if command == "portfolio"
 
+      profile = resolved_profile
       if CONNECTION_COMMANDS.include?(command)
-        service_account = load_service_account
+        service_account = load_service_account(profile:)
         connection = @connection_loader.call(
           service_account:,
           transport: @options.fetch(:transport),
           timeout: @options[:timeout],
           logger: operation_logger
         )
-        return dispatch_connection(command, connection, service_account)
+        return dispatch_connection(command, connection, service_account, profile:)
       end
 
-      service_account = load_service_account
+      service_account = load_service_account(profile:)
       workspace = @workspace_loader.call(
         config: @options.fetch(:config),
-        profile: @options.fetch(:profile),
+        profile:,
         service_account:,
         transport: @options.fetch(:transport),
         timeout: @options[:timeout],
@@ -154,47 +166,22 @@ module AnalyticsOps
         verification = workspace.verify
         render(verification, status: verification.converged ? SUCCESS : DRIFT)
       when "overview"
-        render(workspace.overview)
+        render_workspace_overview(workspace)
       when "report"
-        render(workspace.report(required_report_name!("report")))
+        render_workspace_report(workspace)
       when "realtime"
         render(workspace.realtime(optional_realtime_name!))
       end
     end
 
-    def dispatch_connection(command, connection, service_account)
+    def dispatch_connection(command, connection, service_account, profile:)
       case command
       when "discover"
         render(connection.discover)
       when "properties"
         render_properties(connection.properties)
       when "setup"
-        setup(connection, service_account)
-      end
-    end
-
-    def setup(connection, service_account)
-      result = Setup.new(
-        connection:,
-        config: @options.fetch(:config),
-        profile: @options.fetch(:profile),
-        property_id: @options[:property],
-        noninteractive: @options[:noninteractive],
-        input: @input,
-        out: @out
-      ).call
-      service_account_store.write(service_account.path)
-
-      if human?
-        action = result.created? ? "Created" : "Using"
-        @out.puts "#{action} #{Redaction.message(result.config_path)}"
-        @out.puts "Connected #{Redaction.message(result.profile)} to " \
-                  "#{Redaction.message(result.property.display_name)} " \
-                  "(property #{Redaction.message(result.property.id)})."
-        @out.puts "Next: analytics-ops overview"
-        SUCCESS
-      else
-        render(result)
+        setup(connection, service_account, profile:)
       end
     end
 
@@ -248,11 +235,29 @@ module AnalyticsOps
       Connection.new(service_account:, transport:, timeout:, logger:)
     end
 
-    def load_service_account
+    def load_mcp_server(**)
+      require_relative "mcp_server"
+      MCPServer.new(**)
+    end
+
+    def load_portfolio(**)
+      Portfolio.new(**)
+    end
+
+    def load_service_account(profile:)
       @service_account_loader.call(
         path: @options[:service_account],
-        store: service_account_store
+        store: service_account_store,
+        connection: @options[:connection],
+        config: @options.fetch(:config),
+        profile:
       )
+    end
+
+    def resolved_profile
+      return @options.fetch(:profile) if @options.fetch(:profile_explicit)
+
+      service_account_store.selected_profile(config: @options.fetch(:config)) || @options.fetch(:profile)
     end
 
     def service_account_store
@@ -355,7 +360,11 @@ module AnalyticsOps
         Start here:
           setup        Connect Google, choose a property, and create configuration
           overview     Show a useful five-section summary for the selected property
+          portfolio    Compare totals across every configured property
           properties   List accessible accounts and properties without configuration
+          profiles     List saved property profiles
+          use NAME     Select a profile and its Google connection
+          connections  List saved Google connections
 
         Read-only commands:
           doctor       Validate local setup and Google API/property access
@@ -367,6 +376,7 @@ module AnalyticsOps
           report NAME  Run a built-in standard report
           realtime     Run realtime_events (or pass another realtime recipe)
           schema       Print the version-1 configuration schema
+          mcp          Start the strictly read-only AI connection
 
         Mutation command:
           apply FILE   Apply only a saved, non-stale plan; prompts unless --yes
@@ -377,10 +387,15 @@ module AnalyticsOps
 
         Common options:
           -c, --config PATH          Default: config/analytics_ops.yml
-          -p, --profile NAME        Default: production
+          -p, --profile NAME        Override the selected profile
+              --connection NAME     Override the profile's saved Google connection
           -f, --format FORMAT       human, json, or report-only csv
               --json                Shortcut for --format json
               --csv                 Shortcut for --format csv
+              --last DAYS           Use the previous number of complete days
+              --from DATE           Report start date (use with --to)
+              --to DATE             Report end date (use with --from)
+              --compare             Include the equally long preceding period
           -o, --output PATH         Save a generated plan (plan only)
               --property ID         Select a property without prompting (setup only)
               --service-account PATH Google service-account JSON key (setup only)
@@ -396,3 +411,6 @@ end
 
 require_relative "cli/presenter"
 require_relative "cli/options"
+require_relative "cli/local_commands"
+require_relative "cli/reporting_commands"
+require_relative "cli/setup_commands"

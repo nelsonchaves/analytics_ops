@@ -26,6 +26,39 @@ RSpec.describe AnalyticsOps::Workspace do
     expect(admin).not_to have_received(:snapshot)
   end
 
+  it "applies immutable date overrides to standard reports and overview batches" do
+    ranges = AnalyticsOps::Reports::Period.resolve(last_days: 7, compare: true)
+    report_definition = AnalyticsOps::Reports::Catalog.fetch("calculator_completions").with_date_ranges(ranges)
+    overview_definitions = AnalyticsOps::Reports::Catalog.overview.map do |definition|
+      definition.with_date_ranges(ranges)
+    end
+    allow(data).to receive(:run).with(
+      "123456789",
+      an_object_having_attributes(to_h: report_definition.to_h)
+    ).and_return(result)
+    allow(data).to receive(:batch).with(
+      "123456789",
+      satisfy { |definitions| definitions.map(&:to_h) == overview_definitions.map(&:to_h) }
+    ).and_return(
+      overview_definitions.map do |definition|
+        AnalyticsOps::Reports::Result.new(
+          name: definition.name,
+          kind: "standard",
+          dimension_headers: definition.dimensions + ["dateRange"],
+          metric_headers: definition.metrics,
+          rows: [],
+          row_count: 0,
+          metadata: {}
+        )
+      end
+    )
+
+    expect(workspace.report("calculator_completions", date_ranges: ranges)).to equal(result)
+    expect(workspace.overview(date_ranges: ranges).reports.length).to eq(5)
+    expect(AnalyticsOps::Reports::Catalog.fetch("calculator_completions").date_ranges)
+      .to eq(AnalyticsOps::Reports::Catalog::STANDARD_DATE_RANGE)
+  end
+
   it "runs the default realtime recipe" do
     definition = AnalyticsOps::Reports::Catalog.fetch("realtime_events")
     realtime_result = AnalyticsOps::Reports::Result.new(

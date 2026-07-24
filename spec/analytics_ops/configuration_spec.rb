@@ -187,6 +187,20 @@ RSpec.describe AnalyticsOps::Configuration do
       .to raise_error(AnalyticsOps::ConfigurationError, /Duplicate value.*manual_requirements/)
   end
 
+  it "rejects two local stream names that target the same GA4 stream" do
+    source = valid_yaml.sub(
+      "        default_uri: https://example.com",
+      [
+        "        default_uri: https://example.com",
+        "      duplicate:",
+        "        stream_id: \"987654321\""
+      ].join("\n")
+    )
+
+    expect { load_yaml(source, environment: { "PROPERTY_ID" => "123456789" }) }
+      .to raise_error(AnalyticsOps::ConfigurationError, /Duplicate identity.*streams.*987654321/)
+  end
+
   it "keeps the published JSON Schema synchronized with the CLI schema" do
     path = File.expand_path("../../docs/configuration-schema-v1.json", __dir__)
 

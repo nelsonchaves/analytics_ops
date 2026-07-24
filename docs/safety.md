@@ -5,7 +5,8 @@ Analytics Ops is read-only unless you explicitly apply a saved plan.
 ## What cannot mutate
 
 `properties`, `doctor`, `discover`, `snapshot`, `audit`, `plan`, `verify`,
-`overview`, `report`, and `realtime` only read Google Analytics APIs. Setup
+`overview`, `portfolio`, `report`, `realtime`, and every `mcp` tool only read
+Google Analytics APIs. Setup
 validates a service-account key, verifies access, remembers only its path, and
 creates local configuration; it never changes Analytics. Loading the gem,
 constructing a connection, parsing YAML, and booting Rails make no network
@@ -89,8 +90,11 @@ The public schema is [plan-schema-v1.json](plan-schema-v1.json).
 ## Credential and data boundaries
 
 - Credentials never belong in YAML, plans, fixtures, logs, or command output.
-- `~/.config/analytics_ops/connection.json` contains only a key path, is
-  atomic, and uses mode `0600`; the key is never copied.
+- `~/.config/analytics_ops/connection.json` contains only named key paths and
+  local profile selections, is atomic, and uses mode `0600`; keys are never
+  copied.
+- Setup and doctor warn when a key is broadly readable or stored inside a Git
+  repository.
 - Ambient Application Default Credentials and API keys are never used.
 - Read-only commands request only `analytics.readonly`; guarded apply also
   requests `analytics.edit`.
@@ -103,3 +107,19 @@ The public schema is [plan-schema-v1.json](plan-schema-v1.json).
 Use a Viewer service account for reports-only installations. If one service
 account has the Editor role, Analytics Ops still requests edit scope only
 inside the reviewed apply path.
+
+## AI safety
+
+The MCP server is secure by capability, not merely by instructions:
+
+- every advertised tool declares `readOnlyHint: true` and
+  `destructiveHint: false`
+- no plan, apply, create, update, delete, archive, or credential tool exists
+- starting the MCP process does not load credentials or contact Google
+- tool inputs use strict schemas and bounded report/date choices
+- expected errors are typed and redacted; unexpected errors are generic
+
+An AI provider receives the analytics rows or configuration returned by tools
+you let it call. Connect only an AI account and workspace whose data policy is
+appropriate for that information. The credential file and saved credential
+path are never returned.

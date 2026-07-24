@@ -96,7 +96,7 @@ module AnalyticsOps
             "enhanced_measurement" => validate_enhanced_measurement(stream["enhanced_measurement"], stream_path)
           }
         end
-        streams.sort_by { |stream| stream.fetch("name") }
+        ensure_unique!(streams, ["stream_id"], path).sort_by { |stream| stream.fetch("name") }
       end
 
       def validate_enhanced_measurement(raw, stream_path)

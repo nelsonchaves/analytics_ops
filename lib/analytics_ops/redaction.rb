@@ -25,13 +25,17 @@ module AnalyticsOps
     end
 
     def message(value)
+      text(value, limit: 1_000)
+    end
+
+    def text(value, limit: nil)
       text = value.to_s.encode(Encoding::UTF_8, invalid: :replace, undef: :replace, replace: "?")
-      text.gsub(PRIVATE_KEY, "[REDACTED]")
-          .gsub(AUTHORIZATION, "Authorization: [REDACTED]")
-          .gsub(BEARER, "Bearer [REDACTED]")
-          .gsub(SECRET_ASSIGNMENT) { "#{Regexp.last_match(1)}=[REDACTED]" }
-          .gsub(CONTROL_CHARACTERS, "?")
-          .slice(0, 1_000)
+      redacted = text.gsub(PRIVATE_KEY, "[REDACTED]")
+                     .gsub(AUTHORIZATION, "Authorization: [REDACTED]")
+                     .gsub(BEARER, "Bearer [REDACTED]")
+                     .gsub(SECRET_ASSIGNMENT) { "#{Regexp.last_match(1)}=[REDACTED]" }
+                     .gsub(CONTROL_CHARACTERS, "?")
+      limit ? redacted.slice(0, limit) : redacted
     end
   end
 

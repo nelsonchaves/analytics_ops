@@ -90,8 +90,9 @@ module AnalyticsOps
       Verification.new(plan:)
     end
 
-    def report(name_or_definition)
+    def report(name_or_definition, date_ranges: nil)
       definition = report_definition(name_or_definition, kind: "standard")
+      definition = definition.with_date_ranges(date_ranges) if date_ranges
       data.run(desired_state.property_id, definition)
     end
 
@@ -100,8 +101,10 @@ module AnalyticsOps
       data.run(desired_state.property_id, definition)
     end
 
-    def overview
-      reports = data.batch(desired_state.property_id, Reports::Catalog.overview)
+    def overview(date_ranges: nil)
+      definitions = Reports::Catalog.overview
+      definitions = definitions.map { |definition| definition.with_date_ranges(date_ranges) }.freeze if date_ranges
+      reports = data.batch(desired_state.property_id, definitions)
       Reports::OverviewResult.new(property_id: desired_state.property_id, reports:)
     end
 
@@ -114,6 +117,7 @@ module AnalyticsOps
         { "name" => "admin_api", "status" => "ok", "detail" => "Admin API read succeeded" },
         { "name" => "property_access", "status" => "ok", "detail" => "Read properties/#{remote.property_id}" }
       ]
+      checks.concat(credential_file_checks)
       checks.concat(compatibility_checks)
       checks << clock_check
       checks << edit_capability_check
@@ -178,6 +182,27 @@ module AnalyticsOps
           "status" => details.fetch("supported") ? "ok" : "unsupported",
           "detail" => "Installed #{details.fetch("version")}; supported #{details.fetch("requirement")}; " \
                       "transport #{details.fetch("transport")}"
+        }
+      end
+    end
+
+    def credential_file_checks
+      return [] unless @service_account
+
+      warnings = @service_account.security_warnings
+      if warnings.empty?
+        return [{
+          "name" => "credential_file_security",
+          "status" => "ok",
+          "detail" => "Service-account key permissions and storage location look safe"
+        }]
+      end
+
+      warnings.each_with_index.map do |warning, index|
+        {
+          "name" => "credential_file_security_#{index + 1}",
+          "status" => "warning",
+          "detail" => warning
         }
       end
     end

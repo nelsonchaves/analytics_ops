@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "analytics_ops/version"
-require_relative "analytics_ops/errors"
 require_relative "analytics_ops/redaction"
+require_relative "analytics_ops/errors"
 require_relative "analytics_ops/service_account"
 require_relative "analytics_ops/canonical"
 require_relative "analytics_ops/resources"
@@ -19,6 +19,7 @@ require_relative "analytics_ops/connection"
 require_relative "analytics_ops/setup"
 require_relative "analytics_ops/applier"
 require_relative "analytics_ops/workspace"
+require_relative "analytics_ops/portfolio"
 
 # Safe Google Analytics 4 configuration and reporting operations.
 module AnalyticsOps

@@ -8,9 +8,9 @@ module AnalyticsOps
     def run(command, report_name: nil)
       arguments = [
         command,
-        "--config", ENV.fetch("ANALYTICS_OPS_CONFIG", Rails.root.join("config/analytics_ops.yml").to_s),
-        "--profile", ENV.fetch("ANALYTICS_OPS_PROFILE", Rails.env.to_s)
+        "--config", ENV.fetch("ANALYTICS_OPS_CONFIG", Rails.root.join("config/analytics_ops.yml").to_s)
       ]
+      arguments.push("--profile", ENV.fetch("ANALYTICS_OPS_PROFILE")) if ENV.key?("ANALYTICS_OPS_PROFILE")
       if command == "plan"
         arguments.push("--output",
                        ENV.fetch("ANALYTICS_OPS_PLAN", Rails.root.join("tmp/analytics_ops-plan.json").to_s))
@@ -31,7 +31,8 @@ module AnalyticsOps
       audit: "Audit configured Google Analytics state without changing it",
       plan: "Write a deterministic Analytics Ops plan",
       verify: "Verify that managed Google Analytics state converges",
-      overview: "Show the selected property's Analytics overview"
+      overview: "Show the selected property's Analytics overview",
+      portfolio: "Show totals across every configured Analytics property"
     }.freeze
 
     generators do

@@ -50,4 +50,5 @@ Gem::Specification.new do |spec|
   spec.add_dependency "google-analytics-admin", "~> 0.8.0"
   spec.add_dependency "google-analytics-data", "~> 0.9.0"
   spec.add_dependency "googleauth", "~> 1.12"
+  spec.add_dependency "mcp", "~> 0.25.0"
 end

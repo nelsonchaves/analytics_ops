@@ -24,13 +24,25 @@ analytics-ops overview
 
 `setup` lists the properties the service account can access, lets you choose
 one, and creates the smallest valid `config/analytics_ops.yml` for the default
-`production` profile. It securely remembers the key's path, so every later
+`production` profile. It securely remembers the connection, so every later
 command works without another authentication option. You do not need
 `gcloud`, browser authorization, a property ID, or hand-written YAML.
 
 `overview` makes one bounded batch request and shows totals, a daily trend,
 traffic acquisition, landing pages, and devices for the previous 28 complete
 days. Both commands are read-only in Google Analytics.
+
+After setup, everyday use stays short:
+
+```bash
+analytics-ops report traffic --last 7
+analytics-ops overview --compare
+analytics-ops portfolio
+```
+
+`--last`, `--from`, `--to`, and `--compare` make date changes easy.
+`portfolio` shows users, sessions, and key events across every configured
+property.
 
 ## Google Analytics setup (first time only)
 
@@ -153,7 +165,7 @@ For an application that uses Bundler, add:
 
 ```ruby
 # Gemfile
-gem "analytics_ops", "~> 0.2", group: :development
+gem "analytics_ops", "~> 0.3", group: :development
 ```
 
 Then run:
@@ -171,7 +183,7 @@ Setup:
 - lists the GA4 properties the service account can access
 - lets you choose a property
 - creates `config/analytics_ops.yml`
-- remembers only the key's absolute path in
+- remembers named connections and profile choices, using only key paths, in
   `~/.config/analytics_ops/connection.json`
 
 ### H. Verify the connection with read-only commands
@@ -179,7 +191,9 @@ Setup:
 ```bash
 bundle exec analytics-ops doctor
 bundle exec analytics-ops properties
+bundle exec analytics-ops profiles
 bundle exec analytics-ops overview
+bundle exec analytics-ops portfolio
 bundle exec analytics-ops report traffic --json
 bundle exec analytics-ops realtime
 bundle exec analytics-ops audit
@@ -208,7 +222,7 @@ reviewed a saved plan.
 - **Permission denied:** Grant Viewer or Editor inside GA4. A Google Cloud IAM
   role does not grant access to GA4 data.
 - **“This app is blocked” opens in a browser:** That is an obsolete OAuth
-  flow. Analytics Ops 0.2 uses a service-account JSON key and does not launch
+  flow. Analytics Ops uses a service-account JSON key and does not launch
   browser authorization.
 - **Key unavailable:** Run setup again with the key's new absolute path.
 - **Key creation disabled:** An organization policy may prohibit downloaded
@@ -231,6 +245,39 @@ Already connected? List properties before creating configuration:
 analytics-ops properties
 analytics-ops discover # includes data streams
 ```
+
+## More than one property or client
+
+Setup can safely add another profile to the same configuration:
+
+```bash
+analytics-ops setup \
+  --profile client_b \
+  --connection client_b \
+  --service-account /secure/client-b/service-account.json
+
+analytics-ops profiles
+analytics-ops connections
+analytics-ops use client_b
+analytics-ops overview
+```
+
+The selected profile and its named Google connection are remembered for this
+configuration. Nothing secret enters the YAML. Use `analytics-ops portfolio`
+for one read-only totals table across all configured properties.
+
+## Ask ChatGPT, Codex, or Claude
+
+Analytics Ops includes a local MCP server with read-only tools only:
+
+```bash
+analytics-ops mcp --config /absolute/path/to/config/analytics_ops.yml
+```
+
+It can list properties, audit configuration, and read overviews, portfolios,
+reports, and realtime events. It has no `plan`, `apply`, create, update, or
+delete tool. See [ChatGPT, Codex, and Claude](docs/ai-connections.md) for the
+copy-and-paste connection commands and the data-sharing boundary.
 
 ## The safe change workflow
 
@@ -262,10 +309,14 @@ what failed, and what remains.
 | Command | Purpose | Remote writes? |
 | --- | --- | --- |
 | `analytics-ops setup --service-account PATH` | Connect, choose a property, and create minimal configuration | No |
+| `analytics-ops connections` | List saved connection names without exposing key paths | No |
+| `analytics-ops profiles` | List configured properties and their connections | No |
+| `analytics-ops use NAME` | Select a profile and connection locally | No |
 | `analytics-ops properties` | List accessible accounts and properties without configuration | No |
 | `analytics-ops doctor` | Check configuration, credentials, APIs, property access, clients, and clock | No |
 | `analytics-ops discover` | List accessible accounts, properties, and streams without configuration | No |
 | `analytics-ops overview` | Show five useful reports in one bounded batch | No |
+| `analytics-ops portfolio` | Compare totals across every configured property | No |
 | `analytics-ops snapshot` | Print normalized managed remote state | No |
 | `analytics-ops audit` | Show drift without writing a plan file | No |
 | `analytics-ops plan --output FILE` | Review and save deterministic changes | No |
@@ -273,6 +324,7 @@ what failed, and what remains.
 | `analytics-ops verify` | Check convergence | No |
 | `analytics-ops report NAME` | Run a built-in standard report | No |
 | `analytics-ops realtime` | Run the realtime-events report | No |
+| `analytics-ops mcp` | Start the strictly read-only local AI connection | No |
 | `analytics-ops schema --format json` | Print the configuration schema | No |
 
 Use `--json` or `--format json` for automation. CSV is available only for
@@ -284,6 +336,14 @@ bundle exec analytics-ops report landing-pages --csv
 
 Friendly `traffic` and `landing-pages` aliases leave the original
 `traffic_acquisition` and `landing_pages` names fully supported.
+
+Choose report dates without editing Ruby:
+
+```bash
+analytics-ops report traffic --last 7
+analytics-ops report traffic --from 2026-07-01 --to 2026-07-07
+analytics-ops overview --last 30 --compare
+```
 
 See [Commands](docs/commands.md) for every option and exit status.
 
@@ -314,6 +374,9 @@ plan.write("tmp/ga4-plan.json")
 report = workspace.report("calculator_completions")
 report.rows.each { |row| puts row.fetch("eventCount") }
 
+ranges = AnalyticsOps::Reports::Period.resolve(last_days: 7, compare: true)
+comparison = workspace.report("traffic", date_ranges: ranges)
+
 overview = workspace.overview
 puts overview.report("overview_totals").rows
 ```
@@ -329,12 +392,12 @@ gem "analytics_ops", require: "analytics_ops/rails", group: :development
 ```
 
 ```bash
-bundle exec analytics-ops setup \
-  --profile development \
-  --service-account /absolute/path/to/service-account.json
 bin/rails generate analytics_ops:install
+bundle exec analytics-ops setup \
+  --service-account /absolute/path/to/service-account.json
 bin/rake analytics:doctor
 bin/rake analytics:overview
+bin/rake analytics:portfolio
 bin/rake 'analytics:report[traffic_acquisition]'
 ```
 
@@ -345,11 +408,11 @@ boot-time network calls. See [Rails integration](docs/rails.md).
 ## What Analytics Ops does not do
 
 - It does not inject browser analytics or manage consent banners.
-- It stores only the service-account key's path in a mode-`0600` user file;
-  it never copies the key, tokens, or report rows.
+- It stores only named service-account key paths in a mode-`0600` user file;
+  it never copies keys, tokens, or report rows.
 - It does not delete accounts, properties, streams, or unmanaged resources.
 - It does not claim to manage settings that Google exposes only in the UI.
-- Experimental declarations are findings only in version 0.2.0; they are not
+- Experimental declarations are findings only in version 0.3.0; they are not
   silently applied through Alpha APIs.
 
 ## Documentation
@@ -361,6 +424,7 @@ boot-time network calls. See [Rails integration](docs/rails.md).
 | [Configuration](docs/configuration.md) | Complete strict YAML contract |
 | [Commands](docs/commands.md) | CLI syntax, formats, and exit statuses |
 | [Reports](docs/reports.md) | Built-in recipes and GA reporting limitations |
+| [ChatGPT, Codex, and Claude](docs/ai-connections.md) | Strictly read-only local AI connection |
 | [Rails](docs/rails.md) | Generator and Rake tasks |
 | [Safety](docs/safety.md) | Plans, stale-state protection, rollback, and credentials |
 | [Plan format](docs/plan-format.md) | Version-1 JSON contract |

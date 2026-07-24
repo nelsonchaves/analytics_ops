@@ -40,6 +40,21 @@ module AnalyticsOps
         kind == "realtime"
       end
 
+      def with_date_ranges(value)
+        self.class.new(
+          name:,
+          kind:,
+          dimensions:,
+          metrics:,
+          date_ranges: value,
+          dimension_filter:,
+          metric_filter:,
+          order_bys:,
+          offset:,
+          limit:
+        )
+      end
+
       def to_h
         {
           "name" => name,

@@ -10,9 +10,14 @@ property:
 analytics-ops setup --service-account /absolute/path/to/service-account.json
 ```
 
-Setup writes only a quoted property ID under the `production` profile. It
-will reuse a matching file but will not overwrite an existing profile that
+Setup writes only a quoted property ID under the selected profile. It reuses a
+matching profile, safely appends a missing profile, and fills the untouched
+Rails-generator placeholder. It will not overwrite an existing profile that
 targets another property.
+
+```bash
+analytics-ops setup --profile client_b --connection client_b
+```
 
 ## Smallest valid file
 
@@ -55,7 +60,7 @@ profiles:
         default_uri: "https://www.example.test"
 
         # Accepted only as an explicit experimental declaration.
-        # Version 0.2.0 reports a finding and does not apply this setting.
+        # Version 0.3.0 reports a finding and does not apply this setting.
         enhanced_measurement:
           enabled: true
           experimental: true
@@ -95,7 +100,7 @@ profiles:
       - email_redaction_enabled
       - consent_mode_reviewed
 
-    # Explicit declaration only in 0.2.0; never silently applied.
+    # Explicit declaration only in 0.3.0; never silently applied.
     google_signals:
       state: disabled
       experimental: true
@@ -109,6 +114,8 @@ profiles:
 `stream_id`. For a web stream, `default_uri` may be an absolute HTTP or
 HTTPS URI without embedded credentials. Analytics Ops can update an existing
 web stream URI; it does not automatically create or delete streams.
+Two local stream names cannot target the same `stream_id`; that ambiguity is
+rejected while loading configuration.
 
 ### Retention
 

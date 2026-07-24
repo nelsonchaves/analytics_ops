@@ -40,12 +40,15 @@ Analytics Ops:
 - rejects stale and cross-property plans
 - excludes delete/archive operations from ordinary plans
 - never logs report results automatically
+- exposes only read-only, non-destructive tools through MCP and has no AI
+  mutation tool
 - has no telemetry, private-key/token store, database, or browser injection
 - publishes through RubyGems Trusted Publishing without a stored API key
 
 Plan files still describe operational configuration and are created with mode
 0600. Report output may contain sensitive aggregate data and should be handled
-under the operator's data policy.
+under the operator's data policy. MCP tool results are sent to the connected
+AI provider; credentials and saved key paths are not.
 
 ## Operator responsibilities
 

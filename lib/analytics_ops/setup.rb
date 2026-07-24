@@ -5,21 +5,26 @@ module AnalyticsOps
   class Setup
     PROPERTY_ID = /\A\d{1,50}\z/
     PROFILE = /\A[A-Za-z][A-Za-z0-9_]{0,63}\z/
+    DISABLED_API_REASONS = %w[SERVICE_DISABLED ACCESS_NOT_CONFIGURED].freeze
 
     # Immutable setup outcome returned to the CLI and Ruby callers.
     class Result
-      attr_reader :config_path, :profile, :property
+      attr_reader :config_path, :profile, :property, :warnings
 
-      def initialize(config_path:, profile:, property:, created:)
+      def initialize(config_path:, profile:, property:, created:, updated: false, warnings: [])
         unless property.is_a?(Resources::Property)
           raise ArgumentError, "property must be an AnalyticsOps::Resources::Property"
         end
-        raise ArgumentError, "created must be true or false" unless [true, false].include?(created)
+        unless [true, false].include?(created) && [true, false].include?(updated) && !(created && updated)
+          raise ArgumentError, "created and updated must be distinct booleans"
+        end
 
         @config_path = config_path.to_s.dup.freeze
         @profile = profile.to_s.dup.freeze
         @property = property
         @created = created
+        @updated = updated
+        @warnings = normalized_warnings(warnings)
         freeze
       end
 
@@ -27,8 +32,12 @@ module AnalyticsOps
         @created
       end
 
+      def updated?
+        @updated
+      end
+
       def status
-        created? ? "configured" : "already_configured"
+        created? || updated? ? "configured" : "already_configured"
       end
 
       def to_h
@@ -36,13 +45,25 @@ module AnalyticsOps
           "status" => status,
           "config" => config_path,
           "profile" => profile,
+          "updated" => updated?,
+          "warnings" => warnings,
           "property" => property.to_h
         }
+      end
+
+      private
+
+      def normalized_warnings(value)
+        unless value.is_a?(Array) && value.all? { |warning| warning.is_a?(String) && !warning.empty? }
+          raise ArgumentError, "warnings must be an array of strings"
+        end
+
+        value.map { |warning| Redaction.message(warning).freeze }.freeze
       end
     end
 
     def initialize(connection:, config:, profile:, property_id: nil, noninteractive: false,
-                   input: $stdin, out: $stdout)
+                   warnings: [], input: $stdin, out: $stdout)
       validate_options!(
         config:,
         profile:,
@@ -54,6 +75,7 @@ module AnalyticsOps
       @profile = profile.to_s
       @property_id = property_id
       @noninteractive = noninteractive
+      @warnings = warnings
       @input = input
       @out = out
     end
@@ -70,7 +92,9 @@ module AnalyticsOps
         config_path: write.path,
         profile: @profile,
         property: verification.property,
-        created: write.created?
+        created: write.created?,
+        updated: write.updated?,
+        warnings: @warnings
       )
     end
 
@@ -116,7 +140,7 @@ module AnalyticsOps
     end
 
     def api_disabled?(error)
-      error.message.match?(/SERVICE_DISABLED|API.*(?:disabled|not been used)|serviceusage/i)
+      DISABLED_API_REASONS.include?(error.remote_reason)
     end
 
     def raise_disabled_api!

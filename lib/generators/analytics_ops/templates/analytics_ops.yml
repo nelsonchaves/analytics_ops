@@ -2,7 +2,7 @@
 version: 1
 
 profiles:
-  development:
+  production:
     # GA4 property ID (numeric), not an account ID, stream ID, or measurement ID.
     property_id: "${GA4_PROPERTY_ID}"
 

@@ -32,6 +32,7 @@ mounted read-only except for source edits.
 - Do not introduce telemetry, a database, browser analytics, or boot-time
   network access.
 - Preserve the read-only default and saved-plan confirmation boundary.
+- Keep MCP tools read-only; AI-driven mutation is outside the server boundary.
 - Do not add ordinary delete/archive operations.
 - Use immutable gem-owned public values and typed errors.
 

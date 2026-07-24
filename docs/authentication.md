@@ -53,9 +53,10 @@ Analytics Ops writes this user-level file:
 ~/.config/analytics_ops/connection.json
 ```
 
-It contains only the absolute path to the service-account key. The connection
+It contains named connections, each holding only an absolute key path, plus
+the selected profile/connection for each configuration file. The connection
 file is created atomically with mode `0600`, and its directory uses mode
-`0700`. Analytics Ops does not copy the key or place its contents in project
+`0700`. Analytics Ops does not copy a key or place its contents in project
 configuration.
 
 Keep the key in a stable location. Moving or deleting it requires setup again:
@@ -66,7 +67,37 @@ analytics-ops setup \
 ```
 
 One service account can access several GA4 accounts. Add the same
-service-account email at account level in each GA4 account.
+service-account email at account level in each GA4 account. If different
+clients provide different service accounts, save each one under a clear name:
+
+```bash
+analytics-ops setup \
+  --profile client_a \
+  --connection client_a \
+  --service-account /secure/client-a/service-account.json
+
+analytics-ops setup \
+  --profile client_b \
+  --connection client_b \
+  --service-account /secure/client-b/service-account.json
+```
+
+Then switch without re-entering a key path:
+
+```bash
+analytics-ops connections
+analytics-ops profiles
+analytics-ops use client_b
+analytics-ops overview
+```
+
+`connections` never prints credential paths. `profiles` shows only profile
+names, property IDs, and connection names. An older version-1 single-key
+connection file is read automatically and upgraded on the next successful
+write. If two separate apps both use the default `production` profile with
+different keys, Analytics Ops automatically chooses a collision-free
+connection name instead of repointing the first app. Use `--connection NAME`
+when you want a clearer client name.
 
 ## Read and edit access
 
@@ -136,6 +167,9 @@ GA4 data or settings.
 
 - Never place the JSON key or its path in `analytics_ops.yml`.
 - Never commit a service-account key.
+- Protect the key with `chmod 600` on macOS and Linux.
+- Keep the key outside every Git repository. Setup and `doctor` warn when
+  permissions or placement look unsafe.
 - Never paste key contents into chat, issues, logs, screenshots, or reports.
 - Never place production mutation credentials in a Rails web container.
 - Revoke and replace a key immediately if it may have been exposed.
